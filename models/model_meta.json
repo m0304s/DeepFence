@@ -1,0 +1,25 @@
+{
+  "num_features": 70,
+  "num_classes": 7,
+  "class_names": [
+    "Benign",
+    "Bot",
+    "Brute Force",
+    "DDoS",
+    "DoS",
+    "Infiltration",
+    "SQL Injection"
+  ],
+  "label_mapping": {
+    "Benign": 0,
+    "Bot": 1,
+    "Brute Force": 2,
+    "DDoS": 3,
+    "DoS": 4,
+    "Infiltration": 5,
+    "SQL Injection": 6
+  },
+  "batch_size": 512,
+  "epochs_trained": 24,
+  "best_val_loss": 0.183246
+}

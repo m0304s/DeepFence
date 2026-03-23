@@ -1,0 +1,24 @@
+# 가상환경
+venv/
+
+# 데이터셋
+dataset/
+
+# 전처리 결과
+processed/
+
+# 학습 체크포인트
+models/checkpoint.pt
+models/checkpoint_v2.pt
+
+# Jupyter 체크포인트
+.ipynb_checkpoints/
+
+# Python 캐시
+__pycache__/
+*.pyc
+*.pyo
+
+# OS 파일
+.DS_Store
+Thumbs.db
