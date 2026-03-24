@@ -22,3 +22,6 @@ __pycache__/
 # OS 파일
 .DS_Store
 Thumbs.db
+
+# PDF 파일
+*.pdf
