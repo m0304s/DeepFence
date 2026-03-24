@@ -1,0 +1,17 @@
+{
+  "version": "v4",
+  "loss": "CrossEntropyLoss (class_weight) / L1 제약",
+  "architecture": "SSAE (Encoder) + DeepCNN (4-Block 1D-CNN)",
+  "num_features": 70,
+  "num_classes": 7,
+  "class_names": [
+    "Benign",
+    "Bot",
+    "Brute Force",
+    "DDoS",
+    "DoS",
+    "Infiltration",
+    "SQL Injection"
+  ],
+  "best_val_loss": 0.221414
+}
