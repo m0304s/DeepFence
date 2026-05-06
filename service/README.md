@@ -50,3 +50,24 @@
 까지 연결됩니다.
 
 인터페이스, 패킷 수, 타임아웃 기본값은 `service/configs/live_capture.env.example` 기준으로 맞춰두었습니다.
+
+현재 `run_live_detect.py`는 상시 수집형 루프로 동작하며, `Ctrl + C` 입력 전까지 패킷 묶음을 반복 수집합니다.
+
+## benign 트래픽 생성
+
+실시간 파이프라인 검증용 benign 트래픽 생성:
+
+```powershell
+.\venv\Scripts\python.exe service\scripts\generate_benign_traffic.py
+```
+
+옵션 예시:
+
+```powershell
+.\venv\Scripts\python.exe service\scripts\generate_benign_traffic.py --http --dns --repeat 10 --delay 0.3
+```
+
+기본 동작:
+- HTTP 요청 반복
+- DNS 조회 반복
+- ping 요청 반복

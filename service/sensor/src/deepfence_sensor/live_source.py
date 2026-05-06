@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
+from time import time
 
 from deepfence_common import PacketEvent, RuntimeConfig
 
@@ -73,7 +74,7 @@ def _to_packet_event(packet) -> PacketEvent | None:
 
 
 def capture_live_packets(config: RuntimeConfig) -> Iterable[PacketEvent]:
-    """실시간 패킷 수집."""
+    """실시간 패킷 묶음 수집."""
     try:
         from scapy.all import sniff
     except ImportError as error:
@@ -90,3 +91,8 @@ def capture_live_packets(config: RuntimeConfig) -> Iterable[PacketEvent]:
         event = _to_packet_event(packet)
         if event is not None:
             yield event
+
+
+def current_timestamp() -> float:
+    """현재 시각 반환."""
+    return time()

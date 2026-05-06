@@ -22,9 +22,11 @@ class RuntimeConfig:
     default_model_name: str = "best_model_v6_catboost.cbm"
     sample_index: int = 0
     detect_only: bool = True
-    capture_interface: str = "eth0"
+    capture_interface: str = "Wi-Fi"
     capture_packet_count: int = 12
     capture_timeout_seconds: int = 10
+    flow_idle_timeout_seconds: int = 15
+    loop_sleep_seconds: float = 1.0
 
 
 def find_project_root(start: Path | None = None) -> Path:
