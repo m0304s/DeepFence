@@ -17,3 +17,18 @@
 - `common`: `config.py`, `schemas.py`, `logging.py`
 
 현재는 실행 골격과 책임 분리만 적용한 상태이며, 실제 런타임 로직은 이후 단계에서 채워 넣으면 됩니다.
+
+## 최소 실행
+
+현재는 `detect-only` 기준 최소 런타임이 연결되어 있습니다.
+
+```powershell
+.\venv\Scripts\python.exe service\scripts\run_detect_only.py
+```
+
+이 스크립트는:
+- `sensor`에서 mock flow 1건 생성
+- `inference`에서 `best_model_v6_catboost.cbm` 로드 후 예측
+- `blocker`에서 detect-only 정책 적용
+
+까지를 한 번에 검증합니다.
