@@ -27,7 +27,7 @@
   - 다수 클래스 (Benign, DDoS, DoS): 최대 500,000개로 언더샘플링
   - SQL Injection (87개 → 1,000개): SMOTE 오버샘플링
 - **스케일링**: StandardScaler
-- **저장 위치**: `processed/X.npy`, `processed/y.npy`
+- **저장 위치**: `data/processed/X.npy`, `data/processed/y.npy`
 
 ---
 
@@ -44,7 +44,7 @@
 - **Optimizer**: Adam (lr=1e-3)
 - **Scheduler**: ReduceLROnPlateau (factor=0.5, patience=3)
 - **Early Stopping**: patience=5
-- **체크포인트**: `models/checkpoint.pt` (매 epoch), `models/best_model.pt` (best val_loss)
+- **체크포인트**: `training/artifacts/models/checkpoint.pt` (매 epoch), `training/artifacts/models/best_model.pt` (best val_loss)
 
 ---
 
@@ -113,8 +113,8 @@
 ## 개발 로드맵
 ```
 Phase 1 (진행 중)
-  ✅ 데이터 전처리 (preprocess.ipynb)
-  🔄 CNN1D 모델 학습 (model.ipynb)
+  ✅ 데이터 전처리 (`training/notebooks/preprocess.ipynb`)
+  🔄 CNN1D 모델 학습 (`training/notebooks/model.ipynb`)
   ⬜ 모델 평가
 
 Phase 2
@@ -143,21 +143,27 @@ Phase 6 (선택)
 ---
 
 ## 파일 구조
-```
-IPS/
-├── dataset/              # CIC-IDS-2018 원본 CSV (10개 파일)
-├── processed/            # 전처리 결과
-│   ├── X.npy             # 피처 (2,330,915 × 70)
-│   ├── y.npy             # 레이블
-│   ├── scaler.pkl        # StandardScaler
-│   ├── label_mapping.json
-│   └── feature_names.json
-├── models/               # 학습된 모델
-│   ├── best_model.pt
-│   ├── checkpoint.pt
-│   └── model_meta.json
-├── venv/                 # Python 가상환경
-├── preprocess.ipynb      # 데이터 전처리
-├── model.ipynb           # 모델 학습 및 평가
-└── ARCHITECTURE.md       # 이 문서
+```text
+DeepFence/
+├── data/
+│   ├── raw/                         # CIC-IDS-2018 원본 CSV (10개 파일)
+│   └── processed/                   # 전처리 결과
+│       ├── X.npy                    # 피처 (2,330,915 × 70)
+│       ├── y.npy                    # 레이블
+│       ├── scaler.pkl               # StandardScaler
+│       ├── label_mapping.json
+│       └── feature_names.json
+├── docs/
+│   └── ARCHITECTURE.md              # 이 문서
+├── training/
+│   ├── notebooks/
+│   │   ├── preprocess.ipynb         # 데이터 전처리
+│   │   └── model*.ipynb             # 모델 학습 및 평가 실험
+│   ├── artifacts/
+│   │   ├── models/                  # 학습된 모델/체크포인트
+│   │   └── catboost_info/           # CatBoost 학습 로그
+│   └── results/                     # 평가 결과 리포트
+├── service/
+│   └── src/deepfence_service/       # 서비스 런타임 코드
+└── venv/                            # Python 가상환경
 ```

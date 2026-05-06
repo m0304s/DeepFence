@@ -2,14 +2,14 @@
 venv/
 
 # 데이터셋
-dataset/
+data/raw/
 
 # 전처리 결과
-processed/
+data/processed/
 
 # 학습 체크포인트
-models/checkpoint.pt
-models/checkpoint_v2.pt
+training/artifacts/models/checkpoint.pt
+training/artifacts/models/checkpoint_v2.pt
 
 # Jupyter 체크포인트
 .ipynb_checkpoints/
@@ -18,6 +18,10 @@ models/checkpoint_v2.pt
 __pycache__/
 *.pyc
 *.pyo
+
+# 서비스 런타임 캐시
+service/.pytest_cache/
+service/.mypy_cache/
 
 # OS 파일
 .DS_Store
