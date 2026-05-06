@@ -23,12 +23,13 @@ def main() -> None:
     _extend_sys_path(project_root)
 
     from deepfence_blocker.main import build_policy
-    from deepfence_common import RuntimeConfig, build_runtime_paths
+    from deepfence_common import RuntimeConfig, build_runtime_paths, load_default_env
     from deepfence_common.logging import configure_logging
     from deepfence_inference.main import build_predictor
     from deepfence_sensor.main import emit_sample_flow
 
     logger = configure_logging("deepfence.runner")
+    load_default_env(project_root)
     config = RuntimeConfig()
     paths = build_runtime_paths(project_root)
 

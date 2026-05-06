@@ -22,6 +22,7 @@ __pycache__/
 # 서비스 런타임 캐시
 service/.pytest_cache/
 service/.mypy_cache/
+service/configs/.env
 
 # OS 파일
 .DS_Store
