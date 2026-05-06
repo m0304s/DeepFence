@@ -1,38 +1,131 @@
-"""샘플 센서 입력 생성."""
+"""샘플 패킷 시퀀스 생성."""
 
 from __future__ import annotations
 
-import json
+from deepfence_common import PacketEvent, RuntimeConfig, RuntimePaths
 
-import numpy as np
+from deepfence_sensor.feature_extractor import FeatureExtractor
+from deepfence_sensor.flow_table import FlowTable
 
-from deepfence_common import FlowKey, FlowRecord, RuntimeConfig, RuntimePaths
 
-
-def load_mock_flow(paths: RuntimePaths, config: RuntimeConfig) -> FlowRecord:
-    """전처리 샘플 1건 로드."""
-    feature_names_path = paths.processed_dir / "feature_names.json"
-    features_path = paths.processed_dir / "X.npy"
-
-    with feature_names_path.open(encoding="utf-8") as file:
-        feature_names = json.load(file)
-
-    samples = np.load(features_path, mmap_mode="r")
-    sample = samples[config.sample_index]
-    feature_map = {name: float(value) for name, value in zip(feature_names, sample, strict=True)}
-
-    return FlowRecord(
-        key=FlowKey(
+def build_sample_packets() -> list[PacketEvent]:
+    """샘플 패킷 시퀀스 생성."""
+    return [
+        PacketEvent(
+            timestamp=0.0000,
             src_ip="192.0.2.10",
             dst_ip="198.51.100.20",
             src_port=51515,
             dst_port=443,
             protocol="TCP",
+            length=74,
+            payload_bytes=0,
+            header_length=20,
+            window_bytes=64240,
+            flags=frozenset({"SYN"}),
         ),
-        features=feature_map,
-        metadata={
-            "source": "샘플-전처리-데이터",
-            "sample_index": config.sample_index,
-        },
-        pre_scaled=True,
-    )
+        PacketEvent(
+            timestamp=0.0100,
+            src_ip="198.51.100.20",
+            dst_ip="192.0.2.10",
+            src_port=443,
+            dst_port=51515,
+            protocol="TCP",
+            length=74,
+            payload_bytes=0,
+            header_length=20,
+            window_bytes=65535,
+            flags=frozenset({"SYN", "ACK"}),
+        ),
+        PacketEvent(
+            timestamp=0.0200,
+            src_ip="192.0.2.10",
+            dst_ip="198.51.100.20",
+            src_port=51515,
+            dst_port=443,
+            protocol="TCP",
+            length=66,
+            payload_bytes=0,
+            header_length=20,
+            window_bytes=64240,
+            flags=frozenset({"ACK"}),
+        ),
+        PacketEvent(
+            timestamp=0.0400,
+            src_ip="192.0.2.10",
+            dst_ip="198.51.100.20",
+            src_port=51515,
+            dst_port=443,
+            protocol="TCP",
+            length=512,
+            payload_bytes=446,
+            header_length=20,
+            window_bytes=64240,
+            flags=frozenset({"PSH", "ACK"}),
+        ),
+        PacketEvent(
+            timestamp=0.0800,
+            src_ip="198.51.100.20",
+            dst_ip="192.0.2.10",
+            src_port=443,
+            dst_port=51515,
+            protocol="TCP",
+            length=620,
+            payload_bytes=554,
+            header_length=20,
+            window_bytes=65535,
+            flags=frozenset({"PSH", "ACK"}),
+        ),
+        PacketEvent(
+            timestamp=0.1200,
+            src_ip="192.0.2.10",
+            dst_ip="198.51.100.20",
+            src_port=51515,
+            dst_port=443,
+            protocol="TCP",
+            length=66,
+            payload_bytes=0,
+            header_length=20,
+            window_bytes=64240,
+            flags=frozenset({"FIN", "ACK"}),
+        ),
+        PacketEvent(
+            timestamp=0.1300,
+            src_ip="198.51.100.20",
+            dst_ip="192.0.2.10",
+            src_port=443,
+            dst_port=51515,
+            protocol="TCP",
+            length=66,
+            payload_bytes=0,
+            header_length=20,
+            window_bytes=65535,
+            flags=frozenset({"FIN", "ACK"}),
+        ),
+        PacketEvent(
+            timestamp=0.1400,
+            src_ip="192.0.2.10",
+            dst_ip="198.51.100.20",
+            src_port=51515,
+            dst_port=443,
+            protocol="TCP",
+            length=54,
+            payload_bytes=0,
+            header_length=20,
+            window_bytes=64240,
+            flags=frozenset({"ACK"}),
+        ),
+    ]
+
+
+def load_mock_flow(paths: RuntimePaths, config: RuntimeConfig):
+    """샘플 패킷 시퀀스로 플로우 1건 생성."""
+    table = FlowTable()
+    for packet in build_sample_packets():
+        table.observe(packet)
+
+    extractor = FeatureExtractor(paths)
+    snapshot = table.export_one()
+    flow = extractor.extract(snapshot)
+    flow.metadata["sample_index"] = config.sample_index
+    return flow
