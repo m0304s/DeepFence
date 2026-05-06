@@ -1,12 +1,13 @@
 """Shared utilities for DeepFence runtime services."""
 
 from deepfence_common.config import RuntimeConfig, RuntimePaths, build_runtime_paths, find_project_root
-from deepfence_common.schemas import DetectionResult, FlowKey, FlowRecord
+from deepfence_common.schemas import DetectionResult, FlowKey, FlowRecord, PacketEvent
 
 __all__ = [
     "DetectionResult",
     "FlowKey",
     "FlowRecord",
+    "PacketEvent",
     "RuntimeConfig",
     "RuntimePaths",
     "build_runtime_paths",

@@ -4,6 +4,23 @@ from dataclasses import dataclass, field
 
 
 @dataclass(slots=True)
+class PacketEvent:
+    """패킷 이벤트 1건."""
+
+    timestamp: float
+    src_ip: str
+    dst_ip: str
+    src_port: int
+    dst_port: int
+    protocol: str
+    length: int
+    payload_bytes: int = 0
+    header_length: int = 20
+    window_bytes: int = 0
+    flags: frozenset[str] = field(default_factory=frozenset)
+
+
+@dataclass(slots=True)
 class FlowKey:
     """5-튜플 플로우 식별자."""
 
@@ -20,7 +37,7 @@ class FlowRecord:
 
     key: FlowKey
     features: dict[str, float]
-    metadata: dict[str, str | int | float] = field(default_factory=dict)
+    metadata: dict[str, str | int | float | bool] = field(default_factory=dict)
     pre_scaled: bool = False
 
 
