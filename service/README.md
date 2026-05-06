@@ -32,3 +32,21 @@
 - `blocker`에서 detect-only 정책 적용
 
 까지를 한 번에 검증합니다.
+
+## 실시간 패킷 수집 진입점
+
+실시간 패킷 관찰 모드 진입점:
+
+```powershell
+.\venv\Scripts\python.exe service\scripts\run_live_detect.py
+```
+
+현재는 최소 골격 기준으로:
+- 지정한 인터페이스에서 패킷 소량 수집
+- 패킷을 플로우 1건으로 집계
+- 피처 추출 후 추론
+- `detect-only` 정책 적용
+
+까지 연결됩니다.
+
+인터페이스, 패킷 수, 타임아웃 기본값은 `service/configs/live_capture.env.example` 기준으로 맞춰두었습니다.
