@@ -2,10 +2,10 @@
 venv/
 
 # 데이터셋
-data/raw/
+training/data/raw/
 
 # 전처리 결과
-data/processed/
+training/data/processed/
 
 # 학습 체크포인트
 training/artifacts/models/checkpoint.pt

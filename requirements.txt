@@ -54,9 +54,9 @@ sklearn-compat==0.1.5
 stack-data==0.6.3
 sympy==1.14.0
 threadpoolctl==3.6.0
-torch==2.11.0+cu126
-torchaudio==2.11.0+cu126
-torchvision==0.26.0+cu126
+torch==2.11.0
+torchaudio==2.11.0
+torchvision==0.26.0
 tornado==6.5.5
 tqdm==4.67.3
 traitlets==5.14.3

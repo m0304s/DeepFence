@@ -27,7 +27,7 @@
   - 다수 클래스 (Benign, DDoS, DoS): 최대 500,000개로 언더샘플링
   - SQL Injection (87개 → 1,000개): SMOTE 오버샘플링
 - **스케일링**: StandardScaler
-- **저장 위치**: `data/processed/X.npy`, `data/processed/y.npy`
+- **저장 위치**: `training/data/processed/X.npy`, `training/data/processed/y.npy`
 
 ---
 
@@ -145,17 +145,17 @@ Phase 6 (선택)
 ## 파일 구조
 ```text
 DeepFence/
-├── data/
-│   ├── raw/                         # CIC-IDS-2018 원본 CSV (10개 파일)
-│   └── processed/                   # 전처리 결과
-│       ├── X.npy                    # 피처 (2,330,915 × 70)
-│       ├── y.npy                    # 레이블
-│       ├── scaler.pkl               # StandardScaler
-│       ├── label_mapping.json
-│       └── feature_names.json
 ├── docs/
 │   └── ARCHITECTURE.md              # 이 문서
 ├── training/
+│   ├── data/
+│   │   ├── raw/                     # CIC-IDS-2018 원본 CSV (10개 파일)
+│   │   └── processed/               # 전처리 결과
+│   │       ├── X.npy                # 피처 (2,330,915 × 70)
+│   │       ├── y.npy                # 레이블
+│   │       ├── scaler.pkl           # StandardScaler
+│   │       ├── label_mapping.json
+│   │       └── feature_names.json
 │   ├── notebooks/
 │   │   ├── preprocess.ipynb         # 데이터 전처리
 │   │   └── model*.ipynb             # 모델 학습 및 평가 실험
