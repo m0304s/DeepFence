@@ -66,10 +66,13 @@ def _log_detection_result(logger, prefix: str, result) -> None:
     """탐지 결과를 분석 친화적으로 기록."""
     metadata = result.flow.metadata
     logger.info(
-        "%s: label=%s confidence=%.4f src=%s:%s dst=%s:%s proto=%s packets=%s fwd=%s bwd=%s source=%s top3=[%s]",
+        "%s: label=%s confidence=%.4f should_block=%s reason=%s observations=%s src=%s:%s dst=%s:%s proto=%s packets=%s fwd=%s bwd=%s source=%s top3=[%s]",
         prefix,
         result.label,
         result.confidence,
+        result.should_block,
+        result.policy_reason,
+        result.observation_count,
         result.flow.key.src_ip,
         result.flow.key.src_port,
         result.flow.key.dst_ip,

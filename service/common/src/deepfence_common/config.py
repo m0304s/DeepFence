@@ -19,7 +19,11 @@ class RuntimeConfig:
     """최소 런타임 설정."""
 
     label_allowlist: tuple[str, ...] = ("Benign",)
+    whitelist_ips: tuple[str, ...] = ()
     block_confidence_threshold: float = 0.80
+    label_block_thresholds: dict[str, float] | None = None
+    min_block_observations: int = 2
+    skip_private_peer_blocking: bool = True
     default_model_name: str = "best_model_v6_catboost.cbm"
     sample_index: int = 0
     detect_only: bool = True
@@ -32,9 +36,22 @@ class RuntimeConfig:
     def __post_init__(self) -> None:
         """환경 변수로 런타임 설정 덮어쓰기."""
         self.label_allowlist = _get_tuple_env("LABEL_ALLOWLIST", self.label_allowlist)
+        self.whitelist_ips = _get_tuple_env("WHITELIST_IPS", self.whitelist_ips)
         self.block_confidence_threshold = _get_float_env(
             "BLOCK_CONFIDENCE_THRESHOLD",
             self.block_confidence_threshold,
+        )
+        self.label_block_thresholds = _get_mapping_env(
+            "LABEL_BLOCK_THRESHOLDS",
+            self.label_block_thresholds or {},
+        )
+        self.min_block_observations = _get_int_env(
+            "MIN_BLOCK_OBSERVATIONS",
+            self.min_block_observations,
+        )
+        self.skip_private_peer_blocking = _get_bool_env(
+            "SKIP_PRIVATE_PEER_BLOCKING",
+            self.skip_private_peer_blocking,
         )
         self.default_model_name = os.getenv("DEFAULT_MODEL_NAME", self.default_model_name)
         self.sample_index = _get_int_env("SAMPLE_INDEX", self.sample_index)
@@ -78,6 +95,21 @@ def _get_tuple_env(name: str, default: tuple[str, ...]) -> tuple[str, ...]:
         return default
     items = [item.strip() for item in value.split(",")]
     return tuple(item for item in items if item)
+
+
+def _get_mapping_env(name: str, default: dict[str, float]) -> dict[str, float]:
+    value = os.getenv(name)
+    if value is None:
+        return default
+
+    mapping: dict[str, float] = {}
+    for item in value.split(","):
+        item = item.strip()
+        if not item or "=" not in item:
+            continue
+        key, raw_value = item.split("=", 1)
+        mapping[key.strip()] = float(raw_value.strip())
+    return mapping
 
 
 def load_env_file(env_path: Path) -> None:
