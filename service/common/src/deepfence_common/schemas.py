@@ -50,3 +50,5 @@ class DetectionResult:
     should_block: bool
     flow: FlowRecord
     probabilities: dict[str, float] = field(default_factory=dict)
+    policy_reason: str = ""
+    observation_count: int = 0

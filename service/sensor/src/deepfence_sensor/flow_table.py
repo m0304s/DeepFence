@@ -67,3 +67,22 @@ class FlowTable:
         if not self._flows:
             raise ValueError("집계된 플로우가 없습니다.")
         return next(iter(self._flows.values()))
+
+    def export_expired(self, current_time: float, idle_timeout_seconds: float) -> list[FlowSnapshot]:
+        """유휴 타임아웃 기준으로 종료된 플로우 반환."""
+        expired_ids = [
+            flow_id
+            for flow_id, snapshot in self._flows.items()
+            if current_time - snapshot.ended_at >= idle_timeout_seconds
+        ]
+
+        snapshots: list[FlowSnapshot] = []
+        for flow_id in expired_ids:
+            snapshots.append(self._flows.pop(flow_id))
+        return snapshots
+
+    def export_all(self) -> list[FlowSnapshot]:
+        """현재 집계된 플로우 전체 반환."""
+        snapshots = list(self._flows.values())
+        self._flows.clear()
+        return snapshots

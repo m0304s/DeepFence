@@ -55,4 +55,6 @@ class Predictor:
                 self._idx_to_label[index]: float(score)
                 for index, score in enumerate(probabilities)
             },
+            policy_reason="model-threshold",
+            observation_count=0,
         )
