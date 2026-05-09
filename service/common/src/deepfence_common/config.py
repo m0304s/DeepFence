@@ -28,6 +28,19 @@ class RuntimeConfig:
     min_block_observations: int = 2
     repeat_observation_score: int = 15
     skip_private_peer_blocking: bool = True
+    known_server_ports: tuple[str, ...] = (
+        "22",
+        "53",
+        "80",
+        "123",
+        "443",
+        "445",
+        "5223",
+        "5228",
+        "8080",
+        "8443",
+    )
+    response_traffic_score_reduction: int = 20
     suspicious_attack_labels: tuple[str, ...] = (
         "Infiltration",
         "Brute Force",
@@ -103,6 +116,14 @@ class RuntimeConfig:
         self.skip_private_peer_blocking = _get_bool_env(
             "SKIP_PRIVATE_PEER_BLOCKING",
             self.skip_private_peer_blocking,
+        )
+        self.known_server_ports = _get_tuple_env(
+            "KNOWN_SERVER_PORTS",
+            self.known_server_ports,
+        )
+        self.response_traffic_score_reduction = _get_int_env(
+            "RESPONSE_TRAFFIC_SCORE_REDUCTION",
+            self.response_traffic_score_reduction,
         )
         self.suspicious_attack_labels = _get_tuple_env(
             "SUSPICIOUS_ATTACK_LABELS",

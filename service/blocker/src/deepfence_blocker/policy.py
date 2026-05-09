@@ -121,6 +121,12 @@ class DetectOnlyPolicy:
             risk_score += port_score
             matched_rules.append(f"sensitive-port({result.flow.key.dst_port}:+{port_score})")
 
+        if result.flow.metadata.get("likely_response_traffic"):
+            reduction = min(risk_score, self._config.response_traffic_score_reduction)
+            if reduction:
+                risk_score -= reduction
+                matched_rules.append(f"response-traffic-dampening(-{reduction})")
+
         key = (src_ip, dst_ip, result.flow.key.dst_port, result.label)
         observation_count = self._observation_counts.get(key, 0) + 1
         self._observation_counts[key] = observation_count

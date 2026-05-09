@@ -18,13 +18,14 @@ def _build_result(
     confidence: float,
     src_ip: str = "198.51.100.10",
     dst_ip: str = "203.0.113.20",
+    src_port: int = 50000,
     dst_port: int = 443,
 ) -> DetectionResult:
     flow = FlowRecord(
         key=FlowKey(
             src_ip=src_ip,
             dst_ip=dst_ip,
-            src_port=50000,
+            src_port=src_port,
             dst_port=dst_port,
             protocol="TCP",
         ),
@@ -312,6 +313,40 @@ class DetectOnlyPolicyTest(unittest.TestCase):
         self.assertEqual(second.policy_reason, "awaiting-repeat(1/2)")
         self.assertEqual(second.action, "alert")
         self.assertFalse(second.should_block)
+
+    def test_response_traffic_gets_score_dampening(self) -> None:
+        policy = DetectOnlyPolicy(
+            RuntimeConfig(
+                label_allowlist=("Benign",),
+                label_block_thresholds={"Infiltration": 0.55},
+                label_risk_scores={"Infiltration": 60},
+                response_traffic_score_reduction=20,
+                min_block_observations=2,
+                skip_private_peer_blocking=False,
+            )
+        )
+
+        result = _build_result(
+            label="Infiltration",
+            confidence=0.70,
+            src_ip="104.18.32.47",
+            dst_ip="192.168.0.12",
+            src_port=443,
+            dst_port=59070,
+        )
+        result.flow.metadata["likely_response_traffic"] = True
+        result = policy.apply(result)
+
+        self.assertEqual(result.risk_score, 40)
+        self.assertEqual(result.action, "suspicious")
+        self.assertEqual(
+            result.matched_rules,
+            (
+                "label-score(Infiltration:+60)",
+                "response-traffic-dampening(-20)",
+                "awaiting-repeat(1/2)",
+            ),
+        )
 
 
 if __name__ == "__main__":
