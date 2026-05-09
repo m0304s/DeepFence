@@ -24,6 +24,16 @@ class RuntimeConfig:
     label_block_thresholds: dict[str, float] | None = None
     min_block_observations: int = 2
     skip_private_peer_blocking: bool = True
+    suspicious_attack_labels: tuple[str, ...] = (
+        "Infiltration",
+        "Brute Force",
+        "SQL Injection",
+        "DoS",
+        "DDoS",
+        "Bot",
+    )
+    suspicious_secondary_threshold: float = 0.25
+    suspicious_gap_threshold: float = 0.20
     default_model_name: str = "best_model_v6_catboost.cbm"
     sample_index: int = 0
     detect_only: bool = True
@@ -52,6 +62,18 @@ class RuntimeConfig:
         self.skip_private_peer_blocking = _get_bool_env(
             "SKIP_PRIVATE_PEER_BLOCKING",
             self.skip_private_peer_blocking,
+        )
+        self.suspicious_attack_labels = _get_tuple_env(
+            "SUSPICIOUS_ATTACK_LABELS",
+            self.suspicious_attack_labels,
+        )
+        self.suspicious_secondary_threshold = _get_float_env(
+            "SUSPICIOUS_SECONDARY_THRESHOLD",
+            self.suspicious_secondary_threshold,
+        )
+        self.suspicious_gap_threshold = _get_float_env(
+            "SUSPICIOUS_GAP_THRESHOLD",
+            self.suspicious_gap_threshold,
         )
         self.default_model_name = os.getenv("DEFAULT_MODEL_NAME", self.default_model_name)
         self.sample_index = _get_int_env("SAMPLE_INDEX", self.sample_index)

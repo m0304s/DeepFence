@@ -9,20 +9,41 @@ from deepfence_sensor.live_source import capture_live_packets, current_timestamp
 from deepfence_sensor.mock_source import load_mock_flow
 
 
-def _should_skip_live_snapshot(snapshot) -> bool:
-    """실시간 추론에서 제외할 짧은 플로우 판별."""
+def _skip_reason_for_live_snapshot(snapshot) -> str | None:
+    """실시간 추론에서 제외할 플로우 사유."""
     total_packets = len(snapshot.forward_packets) + len(snapshot.backward_packets)
     if total_packets < 3:
-        return True
+        return "too-few-packets"
 
     if snapshot.key.protocol.upper() == "TCP":
-        forward_flags = set().union(*(packet.flags for packet in snapshot.forward_packets))
-        backward_flags = set().union(*(packet.flags for packet in snapshot.backward_packets))
-        handshake_complete = "SYN" in forward_flags and "SYN" in backward_flags and "ACK" in forward_flags
-        if not handshake_complete:
-            return True
+        forward_flags = set().union(*(packet.flags for packet in snapshot.forward_packets), frozenset())
+        backward_flags = set().union(*(packet.flags for packet in snapshot.backward_packets), frozenset())
+        all_packets = [*snapshot.forward_packets, *snapshot.backward_packets]
 
-    return False
+        # 이미 데이터가 오갔거나 연결 종료 플래그가 있으면 성립된 세션으로 본다.
+        if any(packet.payload_bytes > 0 for packet in all_packets):
+            return None
+        if "FIN" in forward_flags or "FIN" in backward_flags or "RST" in forward_flags or "RST" in backward_flags:
+            return None
+
+        # 정방향 SYN, 역방향 SYN/ACK, 정방향 ACK가 모두 있으면 정상 3-way handshake로 본다.
+        handshake_complete = (
+            "SYN" in forward_flags
+            and "SYN" in backward_flags
+            and "ACK" in backward_flags
+            and "ACK" in forward_flags
+        )
+        if handshake_complete:
+            return None
+
+        # 캡처 시점이 중간이더라도 양방향 ACK가 충분하면 이미 성립된 연결로 본다.
+        ack_bidirectional = "ACK" in forward_flags and "ACK" in backward_flags
+        if ack_bidirectional and total_packets >= 4:
+            return None
+
+        return "incomplete-tcp-session"
+
+    return None
 
 
 def _build_live_flow(snapshot, extractor: FeatureExtractor, config: RuntimeConfig):
@@ -81,9 +102,11 @@ def collect_live_flows(table: FlowTable, extractor: FeatureExtractor, config: Ru
 
     flows = []
     for snapshot in snapshots:
-        if _should_skip_live_snapshot(snapshot):
+        skip_reason = _skip_reason_for_live_snapshot(snapshot)
+        if skip_reason is not None:
             logger.info(
-                "짧은 플로우 제외: %s:%s -> %s:%s proto=%s packets=%s",
+                "플로우 제외: reason=%s %s:%s -> %s:%s proto=%s packets=%s",
+                skip_reason,
                 snapshot.key.src_ip,
                 snapshot.key.src_port,
                 snapshot.key.dst_ip,
@@ -101,9 +124,11 @@ def flush_live_flows(table: FlowTable, extractor: FeatureExtractor, config: Runt
     logger = configure_logging("deepfence.sensor")
     flows = []
     for snapshot in table.export_all():
-        if _should_skip_live_snapshot(snapshot):
+        skip_reason = _skip_reason_for_live_snapshot(snapshot)
+        if skip_reason is not None:
             logger.info(
-                "종료 시 짧은 플로우 제외: %s:%s -> %s:%s proto=%s packets=%s",
+                "종료 시 플로우 제외: reason=%s %s:%s -> %s:%s proto=%s packets=%s",
+                skip_reason,
                 snapshot.key.src_ip,
                 snapshot.key.src_port,
                 snapshot.key.dst_ip,
