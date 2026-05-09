@@ -11,9 +11,9 @@ import urllib.error
 
 
 DEFAULT_HTTP_URLS = (
-    "https://example.com",
-    "https://www.cloudflare.com",
-    "https://www.google.com",
+    "http://example.com",
+    "http://www.cloudflare.com",
+    "http://www.google.com",
 )
 
 DEFAULT_DNS_HOSTS = (

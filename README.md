@@ -35,3 +35,18 @@ DeepFence/
 - 데이터 입출력 기준 경로는 `training/data/`입니다.
 - 서비스 런타임 코드는 `service/sensor`, `service/inference`, `service/blocker`, `service/common`으로 역할 분리합니다.
 - 공용 설계 문서는 `docs/` 아래에 둡니다.
+
+## 현재 상태
+
+- `training/data/processed/` 기준 전처리 산출물과 `best_model_v6_catboost.cbm`을 사용해 실시간 `detect-only` 파이프라인이 동작합니다.
+- macOS에서 실시간 패킷 캡처는 `sudo` 권한이 필요합니다.
+- 정책 엔진은 allowlist, label별 threshold, 반복 탐지 횟수, whitelist IP, 내부망 예외를 지원합니다.
+
+## 빠른 실행
+
+```bash
+cd /Users/minseok/Desktop/codex/프로젝트/DeepFence
+source venv/bin/activate
+python service/scripts/run_detect_only.py
+sudo venv/bin/python service/scripts/run_live_detect.py
+```
