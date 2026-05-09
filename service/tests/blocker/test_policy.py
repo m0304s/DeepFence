@@ -134,6 +134,43 @@ class DetectOnlyPolicyTest(unittest.TestCase):
         self.assertEqual(result.policy_reason, "private-peer-traffic")
         self.assertEqual(result.observation_count, 0)
 
+    def test_close_attack_second_choice_marks_result_suspicious(self) -> None:
+        policy = DetectOnlyPolicy(
+            RuntimeConfig(
+                label_allowlist=("Benign",),
+                suspicious_attack_labels=("Infiltration",),
+                suspicious_secondary_threshold=0.30,
+                suspicious_gap_threshold=0.15,
+            )
+        )
+
+        result = _build_result(label="Benign", confidence=0.56)
+        result.probabilities = {"Benign": 0.56, "Infiltration": 0.44}
+        result = policy.apply(result)
+
+        self.assertTrue(result.suspicious)
+        self.assertEqual(
+            result.suspicious_reason,
+            "close-second(Infiltration=0.4400,gap=0.1200)",
+        )
+
+    def test_large_gap_benign_result_is_not_marked_suspicious(self) -> None:
+        policy = DetectOnlyPolicy(
+            RuntimeConfig(
+                label_allowlist=("Benign",),
+                suspicious_attack_labels=("Infiltration",),
+                suspicious_secondary_threshold=0.30,
+                suspicious_gap_threshold=0.15,
+            )
+        )
+
+        result = _build_result(label="Benign", confidence=0.80)
+        result.probabilities = {"Benign": 0.80, "Infiltration": 0.18, "DoS": 0.02}
+        result = policy.apply(result)
+
+        self.assertFalse(result.suspicious)
+        self.assertEqual(result.suspicious_reason, "")
+
 
 if __name__ == "__main__":
     unittest.main()

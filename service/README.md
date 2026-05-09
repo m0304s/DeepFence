@@ -101,3 +101,18 @@ python -m unittest service.tests.blocker.test_policy
 - `threshold-and-repeat-met`
 - `whitelisted-ip`
 - `private-peer-traffic`
+
+## suspicious 표시
+
+현재 정책 엔진은 `Benign`이 1순위여도 공격 라벨이 근접하게 따라붙는 경우를 별도로 표시할 수 있습니다.
+
+기본 기준:
+- 2순위 라벨이 공격 계열(`Infiltration`, `Brute Force`, `SQL Injection`, `DoS`, `DDoS`, `Bot`)
+- 2순위 확률이 `0.25` 이상
+- 1순위와 2순위 확률 차이가 `0.20` 이하
+
+이 경우 로그에 아래 필드가 추가됩니다.
+- `suspicious=true`
+- `suspicious_reason=close-second(...)`
+
+관련 설정은 `service/configs/.env`에서 조정할 수 있습니다.

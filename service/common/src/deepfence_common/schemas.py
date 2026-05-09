@@ -52,3 +52,5 @@ class DetectionResult:
     probabilities: dict[str, float] = field(default_factory=dict)
     policy_reason: str = ""
     observation_count: int = 0
+    suspicious: bool = False
+    suspicious_reason: str = ""

@@ -56,6 +56,34 @@ class DetectOnlyPolicy:
 
         return True, "threshold-and-repeat-met", observation_count
 
+    def _annotate_suspicious(self, result: DetectionResult) -> None:
+        if result.label not in self._config.label_allowlist:
+            return
+        if not result.probabilities:
+            return
+
+        ranked = sorted(result.probabilities.items(), key=lambda item: item[1], reverse=True)
+        if len(ranked) < 2:
+            return
+
+        top_label, top_score = ranked[0]
+        secondary_label, secondary_score = ranked[1]
+        gap = top_score - secondary_score
+
+        if top_label != result.label:
+            return
+        if secondary_label not in self._config.suspicious_attack_labels:
+            return
+        if secondary_score < self._config.suspicious_secondary_threshold:
+            return
+        if gap > self._config.suspicious_gap_threshold:
+            return
+
+        result.suspicious = True
+        result.suspicious_reason = (
+            f"close-second({secondary_label}={secondary_score:.4f},gap={gap:.4f})"
+        )
+
     def apply(self, result: DetectionResult) -> DetectionResult:
         """탐지 결과 1건 처리."""
         action = "detect-only" if self._config.detect_only else "차단"
@@ -63,13 +91,16 @@ class DetectOnlyPolicy:
         result.should_block = should_block
         result.policy_reason = reason
         result.observation_count = observation_count
+        self._annotate_suspicious(result)
         self._logger.info(
-            "정책 적용: mode=%s label=%s confidence=%.4f should_block=%s reason=%s observations=%s",
+            "정책 적용: mode=%s label=%s confidence=%.4f should_block=%s reason=%s observations=%s suspicious=%s suspicious_reason=%s",
             action,
             result.label,
             result.confidence,
             result.should_block,
             result.policy_reason,
             result.observation_count,
+            result.suspicious,
+            result.suspicious_reason or "-",
         )
         return result
