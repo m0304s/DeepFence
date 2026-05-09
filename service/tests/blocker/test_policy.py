@@ -18,13 +18,14 @@ def _build_result(
     confidence: float,
     src_ip: str = "198.51.100.10",
     dst_ip: str = "203.0.113.20",
+    dst_port: int = 443,
 ) -> DetectionResult:
     flow = FlowRecord(
         key=FlowKey(
             src_ip=src_ip,
             dst_ip=dst_ip,
             src_port=50000,
-            dst_port=443,
+            dst_port=dst_port,
             protocol="TCP",
         ),
         features={},
@@ -45,6 +46,9 @@ class DetectOnlyPolicyTest(unittest.TestCase):
         result = policy.apply(_build_result(label="Benign", confidence=0.99))
 
         self.assertFalse(result.should_block)
+        self.assertEqual(result.risk_score, 0)
+        self.assertEqual(result.action, "log")
+        self.assertEqual(result.matched_rules, ("allowlisted-label",))
         self.assertEqual(result.policy_reason, "allowlisted-label")
         self.assertEqual(result.observation_count, 0)
 
@@ -60,6 +64,9 @@ class DetectOnlyPolicyTest(unittest.TestCase):
         result = policy.apply(_build_result(label="Infiltration", confidence=0.60))
 
         self.assertFalse(result.should_block)
+        self.assertEqual(result.risk_score, 0)
+        self.assertEqual(result.action, "log")
+        self.assertEqual(result.matched_rules, ("below-threshold(0.70)",))
         self.assertEqual(result.policy_reason, "below-threshold(0.70)")
         self.assertEqual(result.observation_count, 0)
 
@@ -68,6 +75,7 @@ class DetectOnlyPolicyTest(unittest.TestCase):
             RuntimeConfig(
                 label_allowlist=("Benign",),
                 label_block_thresholds={"Infiltration": 0.55},
+                label_risk_scores={"Infiltration": 60},
                 min_block_observations=2,
                 skip_private_peer_blocking=False,
             )
@@ -76,6 +84,12 @@ class DetectOnlyPolicyTest(unittest.TestCase):
         result = policy.apply(_build_result(label="Infiltration", confidence=0.60))
 
         self.assertFalse(result.should_block)
+        self.assertEqual(result.risk_score, 60)
+        self.assertEqual(result.action, "alert")
+        self.assertEqual(
+            result.matched_rules,
+            ("label-score(Infiltration:+60)", "awaiting-repeat(1/2)"),
+        )
         self.assertEqual(result.policy_reason, "awaiting-repeat(1/2)")
         self.assertEqual(result.observation_count, 1)
 
@@ -84,6 +98,14 @@ class DetectOnlyPolicyTest(unittest.TestCase):
             RuntimeConfig(
                 label_allowlist=("Benign",),
                 label_block_thresholds={"Infiltration": 0.55},
+                label_risk_scores={"Infiltration": 60},
+                repeat_observation_score=25,
+                action_thresholds={
+                    "suspicious": 25,
+                    "alert": 50,
+                    "block_candidate": 80,
+                    "block": 100,
+                },
                 min_block_observations=2,
                 skip_private_peer_blocking=False,
             )
@@ -93,6 +115,16 @@ class DetectOnlyPolicyTest(unittest.TestCase):
         result = policy.apply(_build_result(label="Infiltration", confidence=0.61))
 
         self.assertTrue(result.should_block)
+        self.assertEqual(result.risk_score, 85)
+        self.assertEqual(result.action, "block_candidate")
+        self.assertEqual(
+            result.matched_rules,
+            (
+                "label-score(Infiltration:+60)",
+                "repeat-score(+25)",
+                "threshold-and-repeat-met",
+            ),
+        )
         self.assertEqual(result.policy_reason, "threshold-and-repeat-met")
         self.assertEqual(result.observation_count, 2)
 
@@ -109,6 +141,9 @@ class DetectOnlyPolicyTest(unittest.TestCase):
         result = policy.apply(_build_result(label="Infiltration", confidence=0.90))
 
         self.assertFalse(result.should_block)
+        self.assertEqual(result.risk_score, 0)
+        self.assertEqual(result.action, "log")
+        self.assertEqual(result.matched_rules, ("whitelisted-ip",))
         self.assertEqual(result.policy_reason, "whitelisted-ip")
         self.assertEqual(result.observation_count, 0)
 
@@ -131,6 +166,9 @@ class DetectOnlyPolicyTest(unittest.TestCase):
         )
 
         self.assertFalse(result.should_block)
+        self.assertEqual(result.risk_score, 0)
+        self.assertEqual(result.action, "log")
+        self.assertEqual(result.matched_rules, ("private-peer-traffic",))
         self.assertEqual(result.policy_reason, "private-peer-traffic")
         self.assertEqual(result.observation_count, 0)
 
@@ -141,6 +179,7 @@ class DetectOnlyPolicyTest(unittest.TestCase):
                 suspicious_attack_labels=("Infiltration",),
                 suspicious_secondary_threshold=0.30,
                 suspicious_gap_threshold=0.15,
+                suspicious_score=30,
             )
         )
 
@@ -149,6 +188,15 @@ class DetectOnlyPolicyTest(unittest.TestCase):
         result = policy.apply(result)
 
         self.assertTrue(result.suspicious)
+        self.assertEqual(result.risk_score, 30)
+        self.assertEqual(result.action, "suspicious")
+        self.assertEqual(
+            result.matched_rules,
+            (
+                "allowlisted-label",
+                "close-second(Infiltration=0.4400,gap=0.1200)",
+            ),
+        )
         self.assertEqual(
             result.suspicious_reason,
             "close-second(Infiltration=0.4400,gap=0.1200)",
@@ -169,7 +217,101 @@ class DetectOnlyPolicyTest(unittest.TestCase):
         result = policy.apply(result)
 
         self.assertFalse(result.suspicious)
+        self.assertEqual(result.risk_score, 0)
+        self.assertEqual(result.action, "log")
         self.assertEqual(result.suspicious_reason, "")
+
+    def test_sensitive_port_score_raises_action_level(self) -> None:
+        policy = DetectOnlyPolicy(
+            RuntimeConfig(
+                label_allowlist=("Benign",),
+                label_block_thresholds={"Infiltration": 0.55},
+                label_risk_scores={"Infiltration": 45},
+                sensitive_port_scores={"22": 20},
+                min_block_observations=2,
+                skip_private_peer_blocking=False,
+            )
+        )
+
+        result = policy.apply(
+            _build_result(
+                label="Infiltration",
+                confidence=0.70,
+                dst_ip="203.0.113.22",
+                dst_port=22,
+            )
+        )
+
+        self.assertEqual(result.risk_score, 65)
+        self.assertEqual(result.action, "alert")
+        self.assertEqual(
+            result.matched_rules,
+            (
+                "label-score(Infiltration:+45)",
+                "sensitive-port(22:+20)",
+                "awaiting-repeat(1/2)",
+            ),
+        )
+
+    def test_awaiting_repeat_caps_action_at_alert(self) -> None:
+        policy = DetectOnlyPolicy(
+            RuntimeConfig(
+                label_allowlist=("Benign",),
+                label_block_thresholds={"Infiltration": 0.55},
+                label_risk_scores={"Infiltration": 70},
+                sensitive_port_scores={"22": 20},
+                min_block_observations=2,
+                skip_private_peer_blocking=False,
+            )
+        )
+
+        result = policy.apply(
+            _build_result(label="Infiltration", confidence=0.90, dst_port=22)
+        )
+
+        self.assertEqual(result.risk_score, 90)
+        self.assertEqual(result.action, "alert")
+        self.assertFalse(result.should_block)
+        self.assertEqual(result.policy_reason, "awaiting-repeat(1/2)")
+
+    def test_repeat_key_isolated_by_destination_and_port(self) -> None:
+        policy = DetectOnlyPolicy(
+            RuntimeConfig(
+                label_allowlist=("Benign",),
+                label_block_thresholds={"Infiltration": 0.55},
+                label_risk_scores={"Infiltration": 60},
+                sensitive_port_scores={"22": 20, "53": 10},
+                repeat_observation_score=15,
+                min_block_observations=2,
+                skip_private_peer_blocking=False,
+            )
+        )
+
+        first = policy.apply(
+            _build_result(
+                label="Infiltration",
+                confidence=0.90,
+                src_ip="192.168.0.12",
+                dst_ip="192.168.0.1",
+                dst_port=22,
+            )
+        )
+        second = policy.apply(
+            _build_result(
+                label="Infiltration",
+                confidence=0.90,
+                src_ip="192.168.0.12",
+                dst_ip="192.168.0.1",
+                dst_port=53,
+            )
+        )
+
+        self.assertEqual(first.observation_count, 1)
+        self.assertEqual(second.observation_count, 1)
+        self.assertEqual(first.policy_reason, "awaiting-repeat(1/2)")
+        self.assertEqual(second.policy_reason, "awaiting-repeat(1/2)")
+        self.assertEqual(second.action, "alert")
+        self.assertFalse(second.should_block)
 
 
 if __name__ == "__main__":

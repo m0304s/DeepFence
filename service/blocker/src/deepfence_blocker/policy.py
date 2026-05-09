@@ -14,47 +14,42 @@ class DetectOnlyPolicy:
     def __init__(self, config: RuntimeConfig):
         self._config = config
         self._logger = configure_logging("deepfence.blocker")
-        self._observation_counts: dict[tuple[str, str], int] = {}
+        self._observation_counts: dict[tuple[str, str, int, str], int] = {}
 
     def _threshold_for_label(self, label: str) -> float:
         thresholds = self._config.label_block_thresholds or {}
         return thresholds.get(label, self._config.block_confidence_threshold)
+
+    def _label_score_for(self, label: str, confidence: float) -> int:
+        label_scores = self._config.label_risk_scores or {}
+        return label_scores.get(label, max(10, int(confidence * 100)))
+
+    def _port_score_for(self, port: int) -> int:
+        port_scores = self._config.sensitive_port_scores or {}
+        return port_scores.get(str(port), 0)
+
+    def _action_for_score(self, risk_score: int) -> str:
+        thresholds = self._config.action_thresholds or {}
+        if risk_score >= thresholds.get("block", 100):
+            return "block"
+        if risk_score >= thresholds.get("block_candidate", 80):
+            return "block_candidate"
+        if risk_score >= thresholds.get("alert", 50):
+            return "alert"
+        if risk_score >= thresholds.get("suspicious", 25):
+            return "suspicious"
+        return "log"
+
+    def _cap_action_before_repeat(self, action: str) -> str:
+        if action in {"block_candidate", "block"}:
+            return "alert"
+        return action
 
     def _is_private_ip(self, value: str) -> bool:
         try:
             return ip_address(value).is_private
         except ValueError:
             return False
-
-    def _evaluate_reason(self, result: DetectionResult) -> tuple[bool, str, int]:
-        src_ip = result.flow.key.src_ip
-        dst_ip = result.flow.key.dst_ip
-
-        if result.label in self._config.label_allowlist:
-            return False, "allowlisted-label", 0
-
-        if src_ip in self._config.whitelist_ips or dst_ip in self._config.whitelist_ips:
-            return False, "whitelisted-ip", 0
-
-        if (
-            self._config.skip_private_peer_blocking
-            and self._is_private_ip(src_ip)
-            and self._is_private_ip(dst_ip)
-        ):
-            return False, "private-peer-traffic", 0
-
-        threshold = self._threshold_for_label(result.label)
-        if result.confidence < threshold:
-            return False, f"below-threshold({threshold:.2f})", 0
-
-        key = (src_ip, result.label)
-        observation_count = self._observation_counts.get(key, 0) + 1
-        self._observation_counts[key] = observation_count
-
-        if observation_count < self._config.min_block_observations:
-            return False, f"awaiting-repeat({observation_count}/{self._config.min_block_observations})", observation_count
-
-        return True, "threshold-and-repeat-met", observation_count
 
     def _annotate_suspicious(self, result: DetectionResult) -> None:
         if result.label not in self._config.label_allowlist:
@@ -84,22 +79,86 @@ class DetectOnlyPolicy:
             f"close-second({secondary_label}={secondary_score:.4f},gap={gap:.4f})"
         )
 
+    def _evaluate_result(self, result: DetectionResult) -> tuple[int, str, list[str], str, int]:
+        src_ip = result.flow.key.src_ip
+        dst_ip = result.flow.key.dst_ip
+        matched_rules: list[str] = []
+        risk_score = 0
+        observation_count = 0
+
+        if result.label in self._config.label_allowlist:
+            matched_rules.append("allowlisted-label")
+            self._annotate_suspicious(result)
+            if result.suspicious:
+                risk_score += self._config.suspicious_score
+                matched_rules.append(result.suspicious_reason)
+            action = self._action_for_score(risk_score)
+            return risk_score, action, matched_rules, "allowlisted-label", 0
+
+        if src_ip in self._config.whitelist_ips or dst_ip in self._config.whitelist_ips:
+            matched_rules.append("whitelisted-ip")
+            return 0, "log", matched_rules, "whitelisted-ip", 0
+
+        if (
+            self._config.skip_private_peer_blocking
+            and self._is_private_ip(src_ip)
+            and self._is_private_ip(dst_ip)
+        ):
+            matched_rules.append("private-peer-traffic")
+            return 0, "log", matched_rules, "private-peer-traffic", 0
+
+        threshold = self._threshold_for_label(result.label)
+        if result.confidence < threshold:
+            matched_rules.append(f"below-threshold({threshold:.2f})")
+            return 0, "log", matched_rules, matched_rules[-1], 0
+
+        label_score = self._label_score_for(result.label, result.confidence)
+        risk_score += label_score
+        matched_rules.append(f"label-score({result.label}:+{label_score})")
+
+        port_score = self._port_score_for(result.flow.key.dst_port)
+        if port_score:
+            risk_score += port_score
+            matched_rules.append(f"sensitive-port({result.flow.key.dst_port}:+{port_score})")
+
+        key = (src_ip, dst_ip, result.flow.key.dst_port, result.label)
+        observation_count = self._observation_counts.get(key, 0) + 1
+        self._observation_counts[key] = observation_count
+
+        if observation_count < self._config.min_block_observations:
+            matched_rules.append(
+                f"awaiting-repeat({observation_count}/{self._config.min_block_observations})"
+            )
+            action = self._cap_action_before_repeat(self._action_for_score(risk_score))
+            return risk_score, action, matched_rules, matched_rules[-1], observation_count
+
+        risk_score += self._config.repeat_observation_score
+        matched_rules.append(f"repeat-score(+{self._config.repeat_observation_score})")
+        matched_rules.append("threshold-and-repeat-met")
+        action = self._action_for_score(risk_score)
+        return risk_score, action, matched_rules, "threshold-and-repeat-met", observation_count
+
     def apply(self, result: DetectionResult) -> DetectionResult:
         """탐지 결과 1건 처리."""
-        action = "detect-only" if self._config.detect_only else "차단"
-        should_block, reason, observation_count = self._evaluate_reason(result)
-        result.should_block = should_block
+        mode = "detect-only" if self._config.detect_only else "차단"
+        risk_score, action, matched_rules, reason, observation_count = self._evaluate_result(result)
+        result.risk_score = risk_score
+        result.action = action
+        result.matched_rules = tuple(matched_rules)
+        result.should_block = action in {"block_candidate", "block"}
         result.policy_reason = reason
         result.observation_count = observation_count
-        self._annotate_suspicious(result)
         self._logger.info(
-            "정책 적용: mode=%s label=%s confidence=%.4f should_block=%s reason=%s observations=%s suspicious=%s suspicious_reason=%s",
-            action,
+            "정책 적용: mode=%s label=%s confidence=%.4f risk_score=%s action=%s should_block=%s reason=%s observations=%s matched_rules=%s suspicious=%s suspicious_reason=%s",
+            mode,
             result.label,
             result.confidence,
+            result.risk_score,
+            result.action,
             result.should_block,
             result.policy_reason,
             result.observation_count,
+            list(result.matched_rules),
             result.suspicious,
             result.suspicious_reason or "-",
         )
