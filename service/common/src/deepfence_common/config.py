@@ -22,8 +22,25 @@ class RuntimeConfig:
     whitelist_ips: tuple[str, ...] = ()
     block_confidence_threshold: float = 0.80
     label_block_thresholds: dict[str, float] | None = None
+    label_risk_scores: dict[str, int] | None = None
+    sensitive_port_scores: dict[str, int] | None = None
+    action_thresholds: dict[str, int] | None = None
     min_block_observations: int = 2
+    repeat_observation_score: int = 15
     skip_private_peer_blocking: bool = True
+    known_server_ports: tuple[str, ...] = (
+        "22",
+        "53",
+        "80",
+        "123",
+        "443",
+        "445",
+        "5223",
+        "5228",
+        "8080",
+        "8443",
+    )
+    response_traffic_score_reduction: int = 20
     suspicious_attack_labels: tuple[str, ...] = (
         "Infiltration",
         "Brute Force",
@@ -34,6 +51,7 @@ class RuntimeConfig:
     )
     suspicious_secondary_threshold: float = 0.25
     suspicious_gap_threshold: float = 0.20
+    suspicious_score: int = 25
     default_model_name: str = "best_model_v6_catboost.cbm"
     sample_index: int = 0
     detect_only: bool = True
@@ -55,13 +73,57 @@ class RuntimeConfig:
             "LABEL_BLOCK_THRESHOLDS",
             self.label_block_thresholds or {},
         )
+        self.label_risk_scores = _get_int_mapping_env(
+            "LABEL_RISK_SCORES",
+            self.label_risk_scores
+            or {
+                "Infiltration": 60,
+                "SQL Injection": 70,
+                "Brute Force": 55,
+                "DoS": 50,
+                "DDoS": 65,
+                "Bot": 45,
+            },
+        )
+        self.sensitive_port_scores = _get_int_mapping_env(
+            "SENSITIVE_PORT_SCORES",
+            self.sensitive_port_scores
+            or {
+                "22": 20,
+                "53": 10,
+                "445": 25,
+                "3389": 30,
+            },
+        )
+        self.action_thresholds = _get_int_mapping_env(
+            "ACTION_THRESHOLDS",
+            self.action_thresholds
+            or {
+                "suspicious": 25,
+                "alert": 50,
+                "block_candidate": 80,
+                "block": 100,
+            },
+        )
         self.min_block_observations = _get_int_env(
             "MIN_BLOCK_OBSERVATIONS",
             self.min_block_observations,
         )
+        self.repeat_observation_score = _get_int_env(
+            "REPEAT_OBSERVATION_SCORE",
+            self.repeat_observation_score,
+        )
         self.skip_private_peer_blocking = _get_bool_env(
             "SKIP_PRIVATE_PEER_BLOCKING",
             self.skip_private_peer_blocking,
+        )
+        self.known_server_ports = _get_tuple_env(
+            "KNOWN_SERVER_PORTS",
+            self.known_server_ports,
+        )
+        self.response_traffic_score_reduction = _get_int_env(
+            "RESPONSE_TRAFFIC_SCORE_REDUCTION",
+            self.response_traffic_score_reduction,
         )
         self.suspicious_attack_labels = _get_tuple_env(
             "SUSPICIOUS_ATTACK_LABELS",
@@ -74,6 +136,10 @@ class RuntimeConfig:
         self.suspicious_gap_threshold = _get_float_env(
             "SUSPICIOUS_GAP_THRESHOLD",
             self.suspicious_gap_threshold,
+        )
+        self.suspicious_score = _get_int_env(
+            "SUSPICIOUS_SCORE",
+            self.suspicious_score,
         )
         self.default_model_name = os.getenv("DEFAULT_MODEL_NAME", self.default_model_name)
         self.sample_index = _get_int_env("SAMPLE_INDEX", self.sample_index)
@@ -131,6 +197,21 @@ def _get_mapping_env(name: str, default: dict[str, float]) -> dict[str, float]:
             continue
         key, raw_value = item.split("=", 1)
         mapping[key.strip()] = float(raw_value.strip())
+    return mapping
+
+
+def _get_int_mapping_env(name: str, default: dict[str, int]) -> dict[str, int]:
+    value = os.getenv(name)
+    if value is None:
+        return default
+
+    mapping: dict[str, int] = {}
+    for item in value.split(","):
+        item = item.strip()
+        if not item or "=" not in item:
+            continue
+        key, raw_value = item.split("=", 1)
+        mapping[key.strip()] = int(raw_value.strip())
     return mapping
 
 

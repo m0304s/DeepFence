@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from ipaddress import ip_address
 from pathlib import Path
 
 import numpy as np
@@ -34,6 +35,17 @@ def _min(values: list[float]) -> float:
 
 def _diffs(values: list[float]) -> list[float]:
     return [right - left for left, right in zip(values, values[1:], strict=False)]
+
+
+def _is_private_ip(value: str) -> bool:
+    try:
+        return ip_address(value).is_private
+    except ValueError:
+        return False
+
+
+def _is_likely_server_port(port: int) -> bool:
+    return port in {22, 53, 80, 123, 443, 445, 5223, 5228, 8080, 8443}
 
 
 class FeatureExtractor:
@@ -179,6 +191,21 @@ class FeatureExtractor:
                 "packet_count": total_packets,
                 "forward_packets": fwd_count,
                 "backward_packets": bwd_count,
+                "src_is_private": _is_private_ip(snapshot.key.src_ip),
+                "dst_is_private": _is_private_ip(snapshot.key.dst_ip),
+                "src_is_likely_server_port": _is_likely_server_port(snapshot.key.src_port),
+                "dst_is_likely_server_port": _is_likely_server_port(snapshot.key.dst_port),
+                "likely_response_traffic": (
+                    not _is_private_ip(snapshot.key.src_ip)
+                    and _is_private_ip(snapshot.key.dst_ip)
+                    and _is_likely_server_port(snapshot.key.src_port)
+                    and snapshot.key.dst_port >= 49152
+                ),
+                "likely_outbound_client_traffic": (
+                    _is_private_ip(snapshot.key.src_ip)
+                    and not _is_private_ip(snapshot.key.dst_ip)
+                    and _is_likely_server_port(snapshot.key.dst_port)
+                ),
             },
             pre_scaled=False,
         )
