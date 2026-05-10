@@ -11,11 +11,18 @@ from deepfence_sensor.mock_source import load_mock_flow
 
 def _skip_reason_for_live_snapshot(snapshot) -> str | None:
     """실시간 추론에서 제외할 플로우 사유."""
+    protocol = snapshot.key.protocol.upper()
+    if protocol not in {"TCP", "UDP"}:
+        return "unsupported-protocol"
+
+    if snapshot.key.src_port == 0 and snapshot.key.dst_port == 0:
+        return "missing-ports"
+
     total_packets = len(snapshot.forward_packets) + len(snapshot.backward_packets)
     if total_packets < 3:
         return "too-few-packets"
 
-    if snapshot.key.protocol.upper() == "TCP":
+    if protocol == "TCP":
         forward_flags = set().union(*(packet.flags for packet in snapshot.forward_packets), frozenset())
         backward_flags = set().union(*(packet.flags for packet in snapshot.backward_packets), frozenset())
         all_packets = [*snapshot.forward_packets, *snapshot.backward_packets]

@@ -121,6 +121,12 @@ class DetectOnlyPolicy:
             risk_score += port_score
             matched_rules.append(f"sensitive-port({result.flow.key.dst_port}:+{port_score})")
 
+        if result.flow.metadata.get("dst_is_trusted_service"):
+            reduction = min(risk_score, self._config.trusted_service_score_reduction)
+            if reduction:
+                risk_score -= reduction
+                matched_rules.append(f"trusted-service-dampening(-{reduction})")
+
         if result.flow.metadata.get("likely_response_traffic"):
             reduction = min(risk_score, self._config.response_traffic_score_reduction)
             if reduction:

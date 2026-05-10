@@ -348,6 +348,40 @@ class DetectOnlyPolicyTest(unittest.TestCase):
             ),
         )
 
+    def test_trusted_service_gets_score_dampening(self) -> None:
+        policy = DetectOnlyPolicy(
+            RuntimeConfig(
+                label_allowlist=("Benign",),
+                label_block_thresholds={"Infiltration": 0.55},
+                label_risk_scores={"Infiltration": 60},
+                trusted_service_score_reduction=20,
+                min_block_observations=2,
+                skip_private_peer_blocking=False,
+            )
+        )
+
+        result = _build_result(
+            label="Infiltration",
+            confidence=0.70,
+            src_ip="192.168.0.12",
+            dst_ip="192.168.0.1",
+            dst_port=53,
+        )
+        result.flow.metadata["dst_is_trusted_service"] = True
+        result = policy.apply(result)
+
+        self.assertEqual(result.risk_score, 50)
+        self.assertEqual(result.action, "alert")
+        self.assertEqual(
+            result.matched_rules,
+            (
+                "label-score(Infiltration:+60)",
+                "sensitive-port(53:+10)",
+                "trusted-service-dampening(-20)",
+                "awaiting-repeat(1/2)",
+            ),
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
