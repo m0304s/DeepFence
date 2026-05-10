@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from ipaddress import ip_address
 
-from deepfence_common import DetectionResult, RuntimeConfig
+from deepfence_common import DetectionResult, RuntimeConfig, evaluate_flow_signatures
 from deepfence_common.logging import configure_logging
 
 
@@ -79,12 +79,23 @@ class DetectOnlyPolicy:
             f"close-second({secondary_label}={secondary_score:.4f},gap={gap:.4f})"
         )
 
+    def _signature_matches_for(self, result: DetectionResult) -> tuple[tuple[str, ...], int]:
+        matches = evaluate_flow_signatures(result.flow, self._config)
+        total_score = sum(match.score for match in matches)
+        formatted = tuple(
+            f"signature({match.rule_id}:+{match.score};{match.reason})"
+            for match in matches
+        )
+        result.matched_signatures = formatted
+        return formatted, total_score
+
     def _evaluate_result(self, result: DetectionResult) -> tuple[int, str, list[str], str, int]:
         src_ip = result.flow.key.src_ip
         dst_ip = result.flow.key.dst_ip
         matched_rules: list[str] = []
         risk_score = 0
         observation_count = 0
+        signature_rules, signature_score = self._signature_matches_for(result)
 
         if result.label in self._config.label_allowlist:
             matched_rules.append("allowlisted-label")
@@ -92,8 +103,11 @@ class DetectOnlyPolicy:
             if result.suspicious:
                 risk_score += self._config.suspicious_score
                 matched_rules.append(result.suspicious_reason)
+            if signature_rules:
+                risk_score += signature_score
+                matched_rules.extend(signature_rules)
             action = self._action_for_score(risk_score)
-            return risk_score, action, matched_rules, "allowlisted-label", 0
+            return risk_score, self._cap_action_before_repeat(action), matched_rules, "allowlisted-label", 0
 
         if src_ip in self._config.whitelist_ips or dst_ip in self._config.whitelist_ips:
             matched_rules.append("whitelisted-ip")
@@ -110,7 +124,12 @@ class DetectOnlyPolicy:
         threshold = self._threshold_for_label(result.label)
         if result.confidence < threshold:
             matched_rules.append(f"below-threshold({threshold:.2f})")
-            return 0, "log", matched_rules, matched_rules[-1], 0
+            if not signature_rules:
+                return 0, "log", matched_rules, matched_rules[-1], 0
+            risk_score += signature_score
+            matched_rules.extend(signature_rules)
+            action = self._cap_action_before_repeat(self._action_for_score(risk_score))
+            return risk_score, action, matched_rules, matched_rules[0], 0
 
         label_score = self._label_score_for(result.label, result.confidence)
         risk_score += label_score
@@ -132,6 +151,10 @@ class DetectOnlyPolicy:
             if reduction:
                 risk_score -= reduction
                 matched_rules.append(f"response-traffic-dampening(-{reduction})")
+
+        if signature_rules:
+            risk_score += signature_score
+            matched_rules.extend(signature_rules)
 
         key = (src_ip, dst_ip, result.flow.key.dst_port, result.label)
         observation_count = self._observation_counts.get(key, 0) + 1

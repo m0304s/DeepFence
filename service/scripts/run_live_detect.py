@@ -66,7 +66,7 @@ def _log_detection_result(logger, prefix: str, result) -> None:
     """탐지 결과를 분석 친화적으로 기록."""
     metadata = result.flow.metadata
     logger.info(
-        "%s: label=%s confidence=%.4f risk_score=%s action=%s should_block=%s reason=%s observations=%s matched_rules=%s suspicious=%s suspicious_reason=%s src=%s:%s dst=%s:%s proto=%s packets=%s fwd=%s bwd=%s source=%s src_roles=%s dst_roles=%s top3=[%s]",
+        "%s: label=%s confidence=%.4f risk_score=%s action=%s should_block=%s reason=%s observations=%s matched_rules=%s matched_signatures=%s suspicious=%s suspicious_reason=%s src=%s:%s dst=%s:%s proto=%s packets=%s fwd=%s bwd=%s source=%s src_roles=%s dst_roles=%s top3=[%s]",
         prefix,
         result.label,
         result.confidence,
@@ -76,6 +76,7 @@ def _log_detection_result(logger, prefix: str, result) -> None:
         result.policy_reason,
         result.observation_count,
         list(result.matched_rules),
+        list(result.matched_signatures),
         result.suspicious,
         result.suspicious_reason or "-",
         result.flow.key.src_ip,

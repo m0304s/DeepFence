@@ -12,12 +12,14 @@ from deepfence_common.config import (
 from deepfence_common.event_store import OpenSearchEventStore, serialize_detection_event
 from deepfence_common.logging import log_context
 from deepfence_common.schemas import DetectionResult, FlowKey, FlowRecord, PacketEvent
+from deepfence_common.signatures import SignatureMatch, evaluate_flow_signatures
 
 __all__ = [
     "DetectionResult",
     "FlowKey",
     "FlowRecord",
     "PacketEvent",
+    "SignatureMatch",
     "AssetEntry",
     "RuntimeConfig",
     "RuntimePaths",
@@ -28,5 +30,6 @@ __all__ = [
     "load_default_env",
     "load_env_file",
     "log_context",
+    "evaluate_flow_signatures",
     "serialize_detection_event",
 ]

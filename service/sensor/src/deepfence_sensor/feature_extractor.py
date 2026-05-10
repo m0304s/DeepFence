@@ -81,6 +81,9 @@ class FeatureExtractor:
         flow_bytes = sum(all_lengths)
         fwd_bytes = sum(fwd_lengths)
         bwd_bytes = sum(bwd_lengths)
+        total_payload_bytes = sum(packet.payload_bytes for packet in packets)
+        forward_payload_bytes = sum(packet.payload_bytes for packet in forward)
+        backward_payload_bytes = sum(packet.payload_bytes for packet in backward)
         total_packets = len(packets)
         fwd_count = len(forward)
         bwd_count = len(backward)
@@ -204,10 +207,17 @@ class FeatureExtractor:
                 "packet_count": total_packets,
                 "forward_packets": fwd_count,
                 "backward_packets": bwd_count,
+                "total_payload_bytes": total_payload_bytes,
+                "forward_payload_bytes": forward_payload_bytes,
+                "backward_payload_bytes": backward_payload_bytes,
                 "src_asset_roles": src_roles,
                 "dst_asset_roles": dst_roles,
                 "src_is_trusted_service": src_is_trusted_service,
                 "dst_is_trusted_service": dst_is_trusted_service,
+                "syn_flag_count": flag_counts["SYN"],
+                "rst_flag_count": flag_counts["RST"],
+                "ack_flag_count": flag_counts["ACK"],
+                "psh_flag_count": flag_counts["PSH"],
                 "src_is_private": _is_private_ip(snapshot.key.src_ip),
                 "dst_is_private": _is_private_ip(snapshot.key.dst_ip),
                 "src_is_likely_server_port": _is_likely_server_port(snapshot.key.src_port),

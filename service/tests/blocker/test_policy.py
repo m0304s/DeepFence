@@ -382,6 +382,101 @@ class DetectOnlyPolicyTest(unittest.TestCase):
             ),
         )
 
+    def test_allowlisted_flow_can_be_marked_by_signature(self) -> None:
+        policy = DetectOnlyPolicy(
+            RuntimeConfig(
+                label_allowlist=("Benign",),
+                signature_rule_scores={"tcp-sensitive-port-probe": 35},
+                sensitive_port_scores={"445": 25},
+            )
+        )
+
+        result = _build_result(label="Benign", confidence=0.90, dst_port=445)
+        result.flow.metadata.update(
+            {
+                "packet_count": 4,
+                "forward_packets": 2,
+                "backward_packets": 2,
+                "total_payload_bytes": 0,
+                "syn_flag_count": 1,
+                "rst_flag_count": 0,
+            }
+        )
+        result = policy.apply(result)
+
+        self.assertEqual(result.risk_score, 35)
+        self.assertEqual(result.action, "suspicious")
+        self.assertEqual(
+            result.matched_signatures,
+            ("signature(tcp-sensitive-port-probe:+35;dst_port=445,packets=4,payload<=32)",),
+        )
+
+    def test_signature_can_raise_below_threshold_flow(self) -> None:
+        policy = DetectOnlyPolicy(
+            RuntimeConfig(
+                label_allowlist=("Benign",),
+                label_block_thresholds={"Infiltration": 0.70},
+                signature_rule_scores={"tcp-sensitive-port-probe": 35},
+                sensitive_port_scores={"22": 20},
+                skip_private_peer_blocking=False,
+            )
+        )
+
+        result = _build_result(label="Infiltration", confidence=0.60, dst_port=22)
+        result.flow.metadata.update(
+            {
+                "packet_count": 4,
+                "forward_packets": 2,
+                "backward_packets": 2,
+                "total_payload_bytes": 0,
+                "syn_flag_count": 1,
+                "rst_flag_count": 0,
+            }
+        )
+        result = policy.apply(result)
+
+        self.assertEqual(result.risk_score, 35)
+        self.assertEqual(result.action, "suspicious")
+        self.assertFalse(result.should_block)
+        self.assertEqual(
+            result.matched_rules,
+            (
+                "below-threshold(0.70)",
+                "signature(tcp-sensitive-port-probe:+35;dst_port=22,packets=4,payload<=32)",
+            ),
+        )
+
+    def test_signature_probe_allows_small_payload_and_more_packets(self) -> None:
+        policy = DetectOnlyPolicy(
+            RuntimeConfig(
+                label_allowlist=("Benign",),
+                signature_rule_scores={"tcp-sensitive-port-probe": 35},
+                sensitive_port_scores={"22": 20},
+                signature_probe_max_packets=8,
+                signature_probe_max_payload_bytes=32,
+            )
+        )
+
+        result = _build_result(label="Benign", confidence=0.90, dst_port=22)
+        result.flow.metadata.update(
+            {
+                "packet_count": 7,
+                "forward_packets": 4,
+                "backward_packets": 3,
+                "total_payload_bytes": 16,
+                "syn_flag_count": 1,
+                "rst_flag_count": 0,
+            }
+        )
+        result = policy.apply(result)
+
+        self.assertEqual(result.risk_score, 35)
+        self.assertEqual(result.action, "suspicious")
+        self.assertEqual(
+            result.matched_signatures,
+            ("signature(tcp-sensitive-port-probe:+35;dst_port=22,packets=7,payload<=32)",),
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

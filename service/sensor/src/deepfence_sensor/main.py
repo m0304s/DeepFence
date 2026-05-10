@@ -9,7 +9,29 @@ from deepfence_sensor.live_source import capture_live_packets, current_timestamp
 from deepfence_sensor.mock_source import load_mock_flow
 
 
-def _skip_reason_for_live_snapshot(snapshot) -> str | None:
+def _is_signature_candidate_snapshot(snapshot, config: RuntimeConfig) -> bool:
+    """짧은 시그니처성 TCP probe는 센서 필터에서 통과시킨다."""
+    if snapshot.key.protocol.upper() != "TCP":
+        return False
+
+    sensitive_ports = {int(port) for port in (config.sensitive_port_scores or {})}
+    if snapshot.key.dst_port not in sensitive_ports:
+        return False
+
+    packets = [*snapshot.forward_packets, *snapshot.backward_packets]
+    if len(packets) < 2:
+        return False
+    if len(packets) > config.signature_probe_max_packets:
+        return False
+
+    total_payload_bytes = sum(packet.payload_bytes for packet in packets)
+    if total_payload_bytes > config.signature_probe_max_payload_bytes:
+        return False
+
+    return True
+
+
+def _skip_reason_for_live_snapshot(snapshot, config: RuntimeConfig) -> str | None:
     """실시간 추론에서 제외할 플로우 사유."""
     protocol = snapshot.key.protocol.upper()
     if protocol not in {"TCP", "UDP"}:
@@ -20,6 +42,8 @@ def _skip_reason_for_live_snapshot(snapshot) -> str | None:
 
     total_packets = len(snapshot.forward_packets) + len(snapshot.backward_packets)
     if total_packets < 3:
+        if _is_signature_candidate_snapshot(snapshot, config):
+            return None
         return "too-few-packets"
 
     if protocol == "TCP":
@@ -46,6 +70,9 @@ def _skip_reason_for_live_snapshot(snapshot) -> str | None:
         # 캡처 시점이 중간이더라도 양방향 ACK가 충분하면 이미 성립된 연결로 본다.
         ack_bidirectional = "ACK" in forward_flags and "ACK" in backward_flags
         if ack_bidirectional and total_packets >= 4:
+            return None
+
+        if _is_signature_candidate_snapshot(snapshot, config):
             return None
 
         return "incomplete-tcp-session"
@@ -119,7 +146,7 @@ def collect_live_flows(table: FlowTable, extractor: FeatureExtractor, config: Ru
 
     flows = []
     for snapshot in snapshots:
-        skip_reason = _skip_reason_for_live_snapshot(snapshot)
+        skip_reason = _skip_reason_for_live_snapshot(snapshot, config)
         if skip_reason is not None:
             with log_context(**_build_snapshot_context(snapshot)):
                 logger.info(
@@ -142,7 +169,7 @@ def flush_live_flows(table: FlowTable, extractor: FeatureExtractor, config: Runt
     logger = configure_logging("deepfence.sensor")
     flows = []
     for snapshot in table.export_all():
-        skip_reason = _skip_reason_for_live_snapshot(snapshot)
+        skip_reason = _skip_reason_for_live_snapshot(snapshot, config)
         if skip_reason is not None:
             with log_context(**_build_snapshot_context(snapshot)):
                 logger.info(

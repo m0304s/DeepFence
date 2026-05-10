@@ -55,5 +55,6 @@ class DetectionResult:
     risk_score: int = 0
     action: str = "log"
     matched_rules: tuple[str, ...] = field(default_factory=tuple)
+    matched_signatures: tuple[str, ...] = field(default_factory=tuple)
     suspicious: bool = False
     suspicious_reason: str = ""
