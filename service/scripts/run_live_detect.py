@@ -91,13 +91,25 @@ def _log_detection_result(logger, prefix: str, result) -> None:
     )
 
 
+def _build_flow_context(flow, *, action: str = "-", risk_score: str | int = "-") -> dict[str, str]:
+    key = flow.key
+    flow_id = f"{key.protocol}:{key.src_ip}:{key.src_port}->{key.dst_ip}:{key.dst_port}"
+    return {
+        "flow_id": flow_id,
+        "src": f"{key.src_ip}:{key.src_port}",
+        "dst": f"{key.dst_ip}:{key.dst_port}",
+        "action": str(action),
+        "risk_score": str(risk_score),
+    }
+
+
 def main() -> None:
     """실시간 패킷 수집으로 전체 파이프라인 실행."""
     project_root = Path(__file__).resolve().parents[2]
     _extend_sys_path(project_root)
 
     from deepfence_blocker.main import build_policy
-    from deepfence_common import RuntimeConfig, build_runtime_paths, load_default_env
+    from deepfence_common import RuntimeConfig, build_runtime_paths, load_default_env, log_context
     from deepfence_common.logging import configure_logging
     from deepfence_inference.main import build_predictor
     from deepfence_sensor.main import build_live_runtime, collect_live_flows, flush_live_flows
@@ -119,14 +131,30 @@ def main() -> None:
             if not flows:
                 logger.info("처리 가능한 종료 플로우 없음")
             for flow in flows:
-                result = policy.apply(predictor.predict(flow))
-                _log_detection_result(logger, "실시간 파이프라인 완료", result)
+                with log_context(**_build_flow_context(flow)):
+                    result = policy.apply(predictor.predict(flow))
+                with log_context(
+                    **_build_flow_context(
+                        result.flow,
+                        action=result.action,
+                        risk_score=result.risk_score,
+                    )
+                ):
+                    _log_detection_result(logger, "실시간 파이프라인 완료", result)
             sleep(config.loop_sleep_seconds)
     except KeyboardInterrupt:
         logger.info("중단 신호 수신, 남은 플로우 정리 시작")
         for flow in flush_live_flows(table, extractor, config):
-            result = policy.apply(predictor.predict(flow))
-            _log_detection_result(logger, "종료 전 플로우 처리", result)
+            with log_context(**_build_flow_context(flow)):
+                result = policy.apply(predictor.predict(flow))
+            with log_context(
+                **_build_flow_context(
+                    result.flow,
+                    action=result.action,
+                    risk_score=result.risk_score,
+                )
+            ):
+                _log_detection_result(logger, "종료 전 플로우 처리", result)
         logger.info("상시 수집 종료")
 
 

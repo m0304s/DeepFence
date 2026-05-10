@@ -1,6 +1,6 @@
 """센서 진입점."""
 
-from deepfence_common import RuntimeConfig, RuntimePaths
+from deepfence_common import RuntimeConfig, RuntimePaths, log_context
 from deepfence_common.logging import configure_logging
 
 from deepfence_sensor.feature_extractor import FeatureExtractor
@@ -54,6 +54,16 @@ def _build_live_flow(snapshot, extractor: FeatureExtractor, config: RuntimeConfi
     return flow
 
 
+def _build_snapshot_context(snapshot) -> dict[str, str]:
+    key = snapshot.key
+    flow_id = f"{key.protocol}:{key.src_ip}:{key.src_port}->{key.dst_ip}:{key.dst_port}"
+    return {
+        "flow_id": flow_id,
+        "src": f"{key.src_ip}:{key.src_port}",
+        "dst": f"{key.dst_ip}:{key.dst_port}",
+    }
+
+
 def emit_sample_flow(paths: RuntimePaths, config: RuntimeConfig):
     """샘플 플로우 1건 생성."""
     logger = configure_logging("deepfence.sensor")
@@ -104,16 +114,17 @@ def collect_live_flows(table: FlowTable, extractor: FeatureExtractor, config: Ru
     for snapshot in snapshots:
         skip_reason = _skip_reason_for_live_snapshot(snapshot)
         if skip_reason is not None:
-            logger.info(
-                "플로우 제외: reason=%s %s:%s -> %s:%s proto=%s packets=%s",
-                skip_reason,
-                snapshot.key.src_ip,
-                snapshot.key.src_port,
-                snapshot.key.dst_ip,
-                snapshot.key.dst_port,
-                snapshot.key.protocol,
-                len(snapshot.forward_packets) + len(snapshot.backward_packets),
-            )
+            with log_context(**_build_snapshot_context(snapshot)):
+                logger.info(
+                    "플로우 제외: reason=%s %s:%s -> %s:%s proto=%s packets=%s",
+                    skip_reason,
+                    snapshot.key.src_ip,
+                    snapshot.key.src_port,
+                    snapshot.key.dst_ip,
+                    snapshot.key.dst_port,
+                    snapshot.key.protocol,
+                    len(snapshot.forward_packets) + len(snapshot.backward_packets),
+                )
             continue
         flows.append(_build_live_flow(snapshot, extractor, config))
     return flows
@@ -126,16 +137,17 @@ def flush_live_flows(table: FlowTable, extractor: FeatureExtractor, config: Runt
     for snapshot in table.export_all():
         skip_reason = _skip_reason_for_live_snapshot(snapshot)
         if skip_reason is not None:
-            logger.info(
-                "종료 시 플로우 제외: reason=%s %s:%s -> %s:%s proto=%s packets=%s",
-                skip_reason,
-                snapshot.key.src_ip,
-                snapshot.key.src_port,
-                snapshot.key.dst_ip,
-                snapshot.key.dst_port,
-                snapshot.key.protocol,
-                len(snapshot.forward_packets) + len(snapshot.backward_packets),
-            )
+            with log_context(**_build_snapshot_context(snapshot)):
+                logger.info(
+                    "종료 시 플로우 제외: reason=%s %s:%s -> %s:%s proto=%s packets=%s",
+                    skip_reason,
+                    snapshot.key.src_ip,
+                    snapshot.key.src_port,
+                    snapshot.key.dst_ip,
+                    snapshot.key.dst_port,
+                    snapshot.key.protocol,
+                    len(snapshot.forward_packets) + len(snapshot.backward_packets),
+                )
             continue
         flows.append(_build_live_flow(snapshot, extractor, config))
     return flows

@@ -8,6 +8,7 @@ from deepfence_common.config import (
     load_default_env,
     load_env_file,
 )
+from deepfence_common.logging import log_context
 from deepfence_common.schemas import DetectionResult, FlowKey, FlowRecord, PacketEvent
 
 __all__ = [
@@ -21,4 +22,5 @@ __all__ = [
     "find_project_root",
     "load_default_env",
     "load_env_file",
+    "log_context",
 ]
