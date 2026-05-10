@@ -111,7 +111,13 @@ def main() -> None:
     _extend_sys_path(project_root)
 
     from deepfence_blocker.main import build_policy
-    from deepfence_common import RuntimeConfig, build_runtime_paths, load_default_env, log_context
+    from deepfence_common import (
+        OpenSearchEventStore,
+        RuntimeConfig,
+        build_runtime_paths,
+        load_default_env,
+        log_context,
+    )
     from deepfence_common.logging import configure_logging
     from deepfence_inference.main import build_predictor
     from deepfence_sensor.main import build_live_runtime, collect_live_flows, flush_live_flows
@@ -125,6 +131,7 @@ def main() -> None:
     predictor = build_predictor(paths, config)
     policy = build_policy(config)
     table, extractor = build_live_runtime(paths)
+    event_store = OpenSearchEventStore(config) if config.opensearch_enabled else None
 
     logger.info("상시 수집 시작: interface=%s", config.capture_interface)
     try:
@@ -143,6 +150,8 @@ def main() -> None:
                     )
                 ):
                     _log_detection_result(logger, "실시간 파이프라인 완료", result)
+                    if event_store is not None:
+                        event_store.save(result)
             sleep(config.loop_sleep_seconds)
     except KeyboardInterrupt:
         logger.info("중단 신호 수신, 남은 플로우 정리 시작")
@@ -157,6 +166,8 @@ def main() -> None:
                 )
             ):
                 _log_detection_result(logger, "종료 전 플로우 처리", result)
+                if event_store is not None:
+                    event_store.save(result)
         logger.info("상시 수집 종료")
 
 

@@ -50,3 +50,49 @@ source venv/bin/activate
 python service/scripts/run_detect_only.py
 sudo venv/bin/python service/scripts/run_live_detect.py
 ```
+
+## OpenSearch 연동
+
+개발용 OpenSearch와 OpenSearch Dashboards는 Docker Compose로 띄울 수 있습니다.
+
+```bash
+cd /Users/minseok/Desktop/codex/프로젝트/DeepFence/infra/opensearch
+docker compose up -d
+```
+
+기본 포트:
+- OpenSearch: `http://localhost:9200`
+- OpenSearch Dashboards: `http://localhost:5601`
+
+Dashboards는 [infra/opensearch/opensearch_dashboards.yml](/Users/minseok/Desktop/codex/프로젝트/DeepFence/infra/opensearch/opensearch_dashboards.yml:1)을 사용합니다. 현재 설정에는 Enhanced Discover에 필요한 아래 옵션이 포함돼 있습니다.
+
+```yaml
+data_source.enabled: true
+workspace.enabled: true
+explore.enabled: true
+```
+
+설정을 바꿨다면 아래처럼 Dashboards를 다시 올리면 됩니다.
+
+```bash
+cd /Users/minseok/Desktop/codex/프로젝트/DeepFence/infra/opensearch
+docker compose up -d dashboards
+```
+
+DeepFence에서 이벤트를 OpenSearch로 직접 저장하려면 `service/configs/.env`에 아래 값을 추가합니다.
+
+```env
+OPENSEARCH_ENABLED=true
+OPENSEARCH_URL=http://localhost:9200
+OPENSEARCH_INDEX=deepfence-events
+OPENSEARCH_USERNAME=
+OPENSEARCH_PASSWORD=
+OPENSEARCH_TIMEOUT_SECONDS=5
+```
+
+연결 확인 예시:
+
+```bash
+curl http://localhost:9200
+curl http://localhost:9200/deepfence-events/_search?pretty
+```

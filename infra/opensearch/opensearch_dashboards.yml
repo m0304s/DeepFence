@@ -1,0 +1,7 @@
+server.host: "0.0.0.0"
+opensearch.hosts: ["http://opensearch:9200"]
+
+# Enhanced Discover prerequisites
+data_source.enabled: true
+workspace.enabled: true
+explore.enabled: true

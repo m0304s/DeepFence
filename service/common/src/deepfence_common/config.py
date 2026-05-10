@@ -53,6 +53,12 @@ class RuntimeConfig:
     suspicious_secondary_threshold: float = 0.25
     suspicious_gap_threshold: float = 0.20
     suspicious_score: int = 25
+    opensearch_enabled: bool = False
+    opensearch_url: str = "http://localhost:9200"
+    opensearch_index: str = "deepfence-events"
+    opensearch_username: str = ""
+    opensearch_password: str = ""
+    opensearch_timeout_seconds: int = 5
     default_model_name: str = "best_model_v6_catboost.cbm"
     sample_index: int = 0
     detect_only: bool = True
@@ -145,6 +151,18 @@ class RuntimeConfig:
         self.suspicious_score = _get_int_env(
             "SUSPICIOUS_SCORE",
             self.suspicious_score,
+        )
+        self.opensearch_enabled = _get_bool_env(
+            "OPENSEARCH_ENABLED",
+            self.opensearch_enabled,
+        )
+        self.opensearch_url = os.getenv("OPENSEARCH_URL", self.opensearch_url)
+        self.opensearch_index = os.getenv("OPENSEARCH_INDEX", self.opensearch_index)
+        self.opensearch_username = os.getenv("OPENSEARCH_USERNAME", self.opensearch_username)
+        self.opensearch_password = os.getenv("OPENSEARCH_PASSWORD", self.opensearch_password)
+        self.opensearch_timeout_seconds = _get_int_env(
+            "OPENSEARCH_TIMEOUT_SECONDS",
+            self.opensearch_timeout_seconds,
         )
         self.default_model_name = os.getenv("DEFAULT_MODEL_NAME", self.default_model_name)
         self.sample_index = _get_int_env("SAMPLE_INDEX", self.sample_index)
