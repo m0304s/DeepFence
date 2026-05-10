@@ -41,6 +41,7 @@ class RuntimeConfig:
         "8443",
     )
     response_traffic_score_reduction: int = 20
+    trusted_service_score_reduction: int = 20
     suspicious_attack_labels: tuple[str, ...] = (
         "Infiltration",
         "Brute Force",
@@ -124,6 +125,10 @@ class RuntimeConfig:
         self.response_traffic_score_reduction = _get_int_env(
             "RESPONSE_TRAFFIC_SCORE_REDUCTION",
             self.response_traffic_score_reduction,
+        )
+        self.trusted_service_score_reduction = _get_int_env(
+            "TRUSTED_SERVICE_SCORE_REDUCTION",
+            self.trusted_service_score_reduction,
         )
         self.suspicious_attack_labels = _get_tuple_env(
             "SUSPICIOUS_ATTACK_LABELS",

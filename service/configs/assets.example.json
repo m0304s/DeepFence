@@ -1,0 +1,10 @@
+{
+  "192.168.0.1": {
+    "roles": ["gateway", "dns", "admin-ui"],
+    "trusted_server_ports": [53, 80, 443, 8443]
+  },
+  "192.168.0.12": {
+    "roles": ["workstation"],
+    "trusted_server_ports": []
+  }
+}

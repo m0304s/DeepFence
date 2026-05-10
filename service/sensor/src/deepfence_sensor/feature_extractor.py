@@ -8,7 +8,7 @@ from pathlib import Path
 
 import numpy as np
 
-from deepfence_common import FlowRecord, RuntimePaths
+from deepfence_common import FlowRecord, RuntimePaths, load_asset_catalog
 
 from deepfence_sensor.flow_table import FlowSnapshot
 
@@ -55,6 +55,7 @@ class FeatureExtractor:
         feature_names_path = paths.processed_dir / "feature_names.json"
         with feature_names_path.open(encoding="utf-8") as file:
             self._feature_names = json.load(file)
+        self._asset_catalog = load_asset_catalog(paths.project_root)
 
     def extract(self, snapshot: FlowSnapshot) -> FlowRecord:
         """플로우 1건에서 피처 벡터 생성."""
@@ -107,6 +108,18 @@ class FeatureExtractor:
         init_bwd_win = float(backward[0].window_bytes if backward else 0)
         fwd_act_data_pkts = sum(1 for packet in forward if packet.payload_bytes > 0)
         fwd_seg_size_min = _min([float(packet.payload_bytes or packet.length) for packet in forward])
+        src_asset = self._asset_catalog.get(snapshot.key.src_ip)
+        dst_asset = self._asset_catalog.get(snapshot.key.dst_ip)
+        src_roles = ",".join(src_asset.roles) if src_asset and src_asset.roles else "-"
+        dst_roles = ",".join(dst_asset.roles) if dst_asset and dst_asset.roles else "-"
+        dst_is_trusted_service = bool(
+            dst_asset
+            and snapshot.key.dst_port in dst_asset.trusted_server_ports
+        )
+        src_is_trusted_service = bool(
+            src_asset
+            and snapshot.key.src_port in src_asset.trusted_server_ports
+        )
 
         features.update(
             {
@@ -191,6 +204,10 @@ class FeatureExtractor:
                 "packet_count": total_packets,
                 "forward_packets": fwd_count,
                 "backward_packets": bwd_count,
+                "src_asset_roles": src_roles,
+                "dst_asset_roles": dst_roles,
+                "src_is_trusted_service": src_is_trusted_service,
+                "dst_is_trusted_service": dst_is_trusted_service,
                 "src_is_private": _is_private_ip(snapshot.key.src_ip),
                 "dst_is_private": _is_private_ip(snapshot.key.dst_ip),
                 "src_is_likely_server_port": _is_likely_server_port(snapshot.key.src_port),

@@ -23,6 +23,7 @@ __pycache__/
 service/.pytest_cache/
 service/.mypy_cache/
 service/configs/.env
+service/configs/assets.json
 
 # OS 파일
 .DS_Store

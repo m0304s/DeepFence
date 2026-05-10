@@ -1,5 +1,6 @@
 """Shared utilities for DeepFence runtime services."""
 
+from deepfence_common.assets import AssetEntry, load_asset_catalog
 from deepfence_common.config import (
     RuntimeConfig,
     RuntimePaths,
@@ -16,10 +17,12 @@ __all__ = [
     "FlowKey",
     "FlowRecord",
     "PacketEvent",
+    "AssetEntry",
     "RuntimeConfig",
     "RuntimePaths",
     "build_runtime_paths",
     "find_project_root",
+    "load_asset_catalog",
     "load_default_env",
     "load_env_file",
     "log_context",
