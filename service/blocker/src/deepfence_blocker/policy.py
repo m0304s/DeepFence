@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from ipaddress import ip_address
 
-from deepfence_common import DetectionResult, RuntimeConfig, evaluate_flow_signatures
+from deepfence_common import DetectionResult, RuntimeConfig, evaluate_flow_signatures, ThreatIntelligenceManager
 from deepfence_common.logging import configure_logging
 from deepfence_blocker.behavior import BehaviorTracker
 
@@ -17,6 +17,10 @@ class DetectOnlyPolicy:
         self._logger = configure_logging("deepfence.blocker")
         self._observation_counts: dict[tuple[str, str, int, str], int] = {}
         self._behavior_tracker = BehaviorTracker(config)
+        self._ti_manager = None
+        if config.ti_enabled:
+            self._ti_manager = ThreatIntelligenceManager(config)
+            self._ti_manager.start()
 
     def _threshold_for_label(self, label: str) -> float:
         thresholds = self._config.label_block_thresholds or {}
@@ -88,7 +92,7 @@ class DetectOnlyPolicy:
         )
 
     def _signature_matches_for(self, result: DetectionResult) -> tuple[tuple[str, ...], int]:
-        matches = evaluate_flow_signatures(result.flow, self._config)
+        matches = evaluate_flow_signatures(result.flow, self._config, self._ti_manager)
         total_score = sum(match.score for match in matches)
         formatted = tuple(
             f"signature({match.rule_id}:+{match.score};{match.reason})"

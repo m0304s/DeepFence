@@ -14,6 +14,7 @@ from deepfence_common.logging import log_context
 from deepfence_common.schemas import DetectionResult, FlowKey, FlowRecord, PacketEvent
 from deepfence_common.signatures import evaluate_flow_signatures
 from deepfence_common.signature_types import SignatureMatch
+from deepfence_common.ti_manager import ThreatIntelligenceManager
 
 __all__ = [
     "DetectionResult",
@@ -33,4 +34,5 @@ __all__ = [
     "log_context",
     "evaluate_flow_signatures",
     "serialize_detection_event",
+    "ThreatIntelligenceManager",
 ]

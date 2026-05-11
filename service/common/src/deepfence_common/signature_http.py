@@ -35,13 +35,27 @@ _SUSPICIOUS_USER_AGENTS = (
     "zgrab",
 )
 
-_EXPLOIT_MARKERS = (
+_XSS_PATTERNS = (
+    "<script",
+    "javascript:",
+    "onerror=",
+    "onload=",
+    "alert(",
+    "document.cookie",
+)
+
+_OS_CMD_PATTERNS = (
     "${jndi:",
     "cmd.exe",
     "powershell",
     "wget http",
     "curl http",
     "/bin/sh",
+    "/bin/bash",
+    "$(whoami)",
+    "| curl",
+    "; wget",
+    "id=root",
 )
 
 
@@ -87,11 +101,18 @@ def evaluate_http_signatures(
         if score:
             matches.append(SignatureMatch(rule_id, score, f"agent={pattern}"))
 
-    pattern = _contains_any(searchable, _EXPLOIT_MARKERS)
+    pattern = _contains_any(searchable, _XSS_PATTERNS)
     if pattern:
-        rule_id = "http-known-exploit-marker"
+        rule_id = "http-xss-keyword"
         score = score_for(score_map, rule_id)
         if score:
-            matches.append(SignatureMatch(rule_id, score, f"marker={pattern}"))
+            matches.append(SignatureMatch(rule_id, score, f"xss={pattern}"))
+
+    pattern = _contains_any(searchable, _OS_CMD_PATTERNS)
+    if pattern:
+        rule_id = "http-os-command-injection"
+        score = score_for(score_map, rule_id)
+        if score:
+            matches.append(SignatureMatch(rule_id, score, f"cmd={pattern}"))
 
     return tuple(matches)

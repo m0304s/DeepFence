@@ -56,4 +56,21 @@ def evaluate_dns_signatures(
                     SignatureMatch(rule_id, score, f"entropy={_entropy(compact):.2f},len={len(compact)}")
                 )
 
+        for tld in config.signature_dns_suspicious_tlds:
+            if normalized.endswith(tld):
+                rule_id = "dns-suspicious-tld"
+                score = score_for(score_map, rule_id)
+                if score:
+                    matches.append(SignatureMatch(rule_id, score, f"tld={tld}"))
+                break
+
+        parts = normalized.split(".")
+        if len(parts) >= 3:
+            subdomain = ".".join(parts[:-2])
+            if len(subdomain) >= config.signature_dns_subdomain_max_chars:
+                rule_id = "dns-tunneling-suspected"
+                score = score_for(score_map, rule_id)
+                if score:
+                    matches.append(SignatureMatch(rule_id, score, f"subdomain_len={len(subdomain)}"))
+
     return tuple(matches)

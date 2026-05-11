@@ -7,6 +7,7 @@ from deepfence_common.schemas import FlowRecord
 from deepfence_common.signature_dns import evaluate_dns_signatures
 from deepfence_common.signature_flow import evaluate_flow_metadata_signatures
 from deepfence_common.signature_http import evaluate_http_signatures
+from deepfence_common.signature_ti import evaluate_ti_signatures
 from deepfence_common.signature_tls import evaluate_tls_signatures
 from deepfence_common.signature_types import SignatureMatch
 
@@ -14,8 +15,9 @@ from deepfence_common.signature_types import SignatureMatch
 def evaluate_flow_signatures(
     flow: FlowRecord,
     config: RuntimeConfig,
+    ti_manager=None,
 ) -> tuple[SignatureMatch, ...]:
-    """Flow, HTTP, DNS, TLS metadata 시그니처를 통합 평가."""
+    """Flow, HTTP, DNS, TLS, TI metadata 시그니처를 통합 평가."""
     if not config.signature_enabled:
         return ()
 
@@ -25,4 +27,5 @@ def evaluate_flow_signatures(
         *evaluate_http_signatures(flow, score_map),
         *evaluate_dns_signatures(flow, config, score_map),
         *evaluate_tls_signatures(flow, score_map),
+        *evaluate_ti_signatures(flow, ti_manager, score_map),
     )

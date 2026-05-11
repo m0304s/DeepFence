@@ -62,6 +62,23 @@ class RuntimeConfig:
     signature_dns_txt_min_chars: int = 40
     signature_dns_entropy_min_chars: int = 50
     signature_dns_entropy_threshold: float = 4.0
+    signature_dns_suspicious_tlds: tuple[str, ...] = (
+        ".tk",
+        ".ml",
+        ".ga",
+        ".cf",
+        ".gq",
+        ".xyz",
+        ".top",
+        ".pw",
+        ".cc",
+        ".su",
+    )
+    signature_dns_subdomain_max_chars: int = 60
+    ti_enabled: bool = False
+    ti_update_interval_seconds: int = 3600
+    ti_ip_feed_url: str = "https://rules.emergingthreats.net/blockrules/compromised-ips.txt"
+    ti_domain_feed_url: str = "https://urlhaus.abuse.ch/downloads/hostfile/"
     behavior_enabled: bool = True
     behavior_window_seconds: int = 60
     behavior_port_scan_min_ports: int = 3
@@ -179,12 +196,18 @@ class RuntimeConfig:
                 "tcp-half-open-probe": 20,
                 "tcp-rst-probe": 10,
                 "http-sqli-keyword": 70,
+                "http-xss-keyword": 60,
+                "http-os-command-injection": 75,
                 "http-path-traversal": 50,
                 "http-suspicious-user-agent": 45,
                 "http-known-exploit-marker": 75,
                 "dns-long-query": 30,
                 "dns-suspicious-txt-query": 35,
                 "dns-high-entropy-query": 30,
+                "dns-suspicious-tld": 25,
+                "dns-tunneling-suspected": 60,
+                "ti-malicious-ip": 90,
+                "ti-malicious-domain": 90,
             },
         )
         self.signature_probe_max_packets = _get_int_env(
@@ -215,6 +238,20 @@ class RuntimeConfig:
             "SIGNATURE_DNS_ENTROPY_THRESHOLD",
             self.signature_dns_entropy_threshold,
         )
+        self.signature_dns_suspicious_tlds = _get_tuple_env(
+            "SIGNATURE_DNS_SUSPICIOUS_TLDS",
+            self.signature_dns_suspicious_tlds,
+        )
+        self.signature_dns_subdomain_max_chars = _get_int_env(
+            "SIGNATURE_DNS_SUBDOMAIN_MAX_CHARS",
+            self.signature_dns_subdomain_max_chars,
+        )
+        self.ti_enabled = _get_bool_env("TI_ENABLED", self.ti_enabled)
+        self.ti_update_interval_seconds = _get_int_env(
+            "TI_UPDATE_INTERVAL_SECONDS", self.ti_update_interval_seconds
+        )
+        self.ti_ip_feed_url = os.getenv("TI_IP_FEED_URL", self.ti_ip_feed_url)
+        self.ti_domain_feed_url = os.getenv("TI_DOMAIN_FEED_URL", self.ti_domain_feed_url)
         self.behavior_enabled = _get_bool_env(
             "BEHAVIOR_ENABLED",
             self.behavior_enabled,
