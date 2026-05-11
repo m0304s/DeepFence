@@ -6,6 +6,7 @@ from ipaddress import ip_address
 
 from deepfence_common import DetectionResult, RuntimeConfig, evaluate_flow_signatures
 from deepfence_common.logging import configure_logging
+from deepfence_blocker.behavior import BehaviorTracker
 
 
 class DetectOnlyPolicy:
@@ -15,6 +16,7 @@ class DetectOnlyPolicy:
         self._config = config
         self._logger = configure_logging("deepfence.blocker")
         self._observation_counts: dict[tuple[str, str, int, str], int] = {}
+        self._behavior_tracker = BehaviorTracker(config)
 
     def _threshold_for_label(self, label: str) -> float:
         thresholds = self._config.label_block_thresholds or {}
@@ -44,6 +46,12 @@ class DetectOnlyPolicy:
         if action in {"block_candidate", "block"}:
             return "alert"
         return action
+
+    def _cap_action(self, action: str, max_action: str) -> str:
+        order = ("log", "suspicious", "alert", "block_candidate", "block")
+        if action not in order or max_action not in order:
+            return action
+        return order[min(order.index(action), order.index(max_action))]
 
     def _is_private_ip(self, value: str) -> bool:
         try:
@@ -89,6 +97,16 @@ class DetectOnlyPolicy:
         result.matched_signatures = formatted
         return formatted, total_score
 
+    def _behavior_matches_for(self, result: DetectionResult) -> tuple[tuple[str, ...], int]:
+        matches = self._behavior_tracker.evaluate(result)
+        total_score = sum(match.score for match in matches)
+        formatted = tuple(
+            f"behavior({match.rule_id}:+{match.score};{match.reason})"
+            for match in matches
+        )
+        result.matched_behaviors = formatted
+        return formatted, total_score
+
     def _evaluate_result(self, result: DetectionResult) -> tuple[int, str, list[str], str, int]:
         src_ip = result.flow.key.src_ip
         dst_ip = result.flow.key.dst_ip
@@ -97,7 +115,12 @@ class DetectOnlyPolicy:
         observation_count = 0
         signature_rules, signature_score = self._signature_matches_for(result)
 
+        if src_ip in self._config.whitelist_ips or dst_ip in self._config.whitelist_ips:
+            matched_rules.append("whitelisted-ip")
+            return 0, "log", matched_rules, "whitelisted-ip", 0
+
         if result.label in self._config.label_allowlist:
+            behavior_rules, behavior_score = self._behavior_matches_for(result)
             matched_rules.append("allowlisted-label")
             self._annotate_suspicious(result)
             if result.suspicious:
@@ -106,12 +129,13 @@ class DetectOnlyPolicy:
             if signature_rules:
                 risk_score += signature_score
                 matched_rules.extend(signature_rules)
+            if behavior_rules:
+                risk_score += behavior_score
+                matched_rules.extend(behavior_rules)
             action = self._action_for_score(risk_score)
-            return risk_score, self._cap_action_before_repeat(action), matched_rules, "allowlisted-label", 0
-
-        if src_ip in self._config.whitelist_ips or dst_ip in self._config.whitelist_ips:
-            matched_rules.append("whitelisted-ip")
-            return 0, "log", matched_rules, "whitelisted-ip", 0
+            action = self._cap_action_before_repeat(action)
+            action = self._cap_action(action, self._config.signature_allowlisted_max_action)
+            return risk_score, action, matched_rules, "allowlisted-label", 0
 
         if (
             self._config.skip_private_peer_blocking
@@ -121,13 +145,17 @@ class DetectOnlyPolicy:
             matched_rules.append("private-peer-traffic")
             return 0, "log", matched_rules, "private-peer-traffic", 0
 
+        behavior_rules, behavior_score = self._behavior_matches_for(result)
+
         threshold = self._threshold_for_label(result.label)
         if result.confidence < threshold:
             matched_rules.append(f"below-threshold({threshold:.2f})")
-            if not signature_rules:
+            if not signature_rules and not behavior_rules:
                 return 0, "log", matched_rules, matched_rules[-1], 0
             risk_score += signature_score
+            risk_score += behavior_score
             matched_rules.extend(signature_rules)
+            matched_rules.extend(behavior_rules)
             action = self._cap_action_before_repeat(self._action_for_score(risk_score))
             return risk_score, action, matched_rules, matched_rules[0], 0
 
@@ -155,6 +183,10 @@ class DetectOnlyPolicy:
         if signature_rules:
             risk_score += signature_score
             matched_rules.extend(signature_rules)
+
+        if behavior_rules:
+            risk_score += behavior_score
+            matched_rules.extend(behavior_rules)
 
         key = (src_ip, dst_ip, result.flow.key.dst_port, result.label)
         observation_count = self._observation_counts.get(key, 0) + 1
@@ -184,7 +216,7 @@ class DetectOnlyPolicy:
         result.policy_reason = reason
         result.observation_count = observation_count
         self._logger.info(
-            "정책 적용: mode=%s label=%s confidence=%.4f risk_score=%s action=%s should_block=%s reason=%s observations=%s matched_rules=%s suspicious=%s suspicious_reason=%s",
+            "정책 적용: mode=%s label=%s confidence=%.4f risk_score=%s action=%s should_block=%s reason=%s observations=%s matched_rules=%s matched_signatures=%s matched_behaviors=%s suspicious=%s suspicious_reason=%s",
             mode,
             result.label,
             result.confidence,
@@ -194,6 +226,8 @@ class DetectOnlyPolicy:
             result.policy_reason,
             result.observation_count,
             list(result.matched_rules),
+            list(result.matched_signatures),
+            list(result.matched_behaviors),
             result.suspicious,
             result.suspicious_reason or "-",
         )
