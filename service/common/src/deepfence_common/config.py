@@ -57,6 +57,17 @@ class RuntimeConfig:
     signature_rule_scores: dict[str, int] | None = None
     signature_probe_max_packets: int = 8
     signature_probe_max_payload_bytes: int = 32
+    signature_allowlisted_max_action: str = "suspicious"
+    signature_dns_long_query_chars: int = 80
+    signature_dns_txt_min_chars: int = 40
+    signature_dns_entropy_min_chars: int = 50
+    signature_dns_entropy_threshold: float = 4.0
+    behavior_enabled: bool = True
+    behavior_window_seconds: int = 60
+    behavior_port_scan_min_ports: int = 3
+    behavior_fanout_min_hosts: int = 3
+    behavior_port_scan_score: int = 35
+    behavior_fanout_score: int = 35
     opensearch_enabled: bool = False
     opensearch_url: str = "http://localhost:9200"
     opensearch_index: str = "deepfence-events"
@@ -164,9 +175,16 @@ class RuntimeConfig:
             "SIGNATURE_RULE_SCORES",
             self.signature_rule_scores
             or {
-                "tcp-sensitive-port-probe": 35,
-                "tcp-half-open-probe": 25,
-                "tcp-rst-probe": 20,
+                "tcp-sensitive-port-probe": 30,
+                "tcp-half-open-probe": 20,
+                "tcp-rst-probe": 10,
+                "http-sqli-keyword": 70,
+                "http-path-traversal": 50,
+                "http-suspicious-user-agent": 45,
+                "http-known-exploit-marker": 75,
+                "dns-long-query": 30,
+                "dns-suspicious-txt-query": 35,
+                "dns-high-entropy-query": 30,
             },
         )
         self.signature_probe_max_packets = _get_int_env(
@@ -176,6 +194,50 @@ class RuntimeConfig:
         self.signature_probe_max_payload_bytes = _get_int_env(
             "SIGNATURE_PROBE_MAX_PAYLOAD_BYTES",
             self.signature_probe_max_payload_bytes,
+        )
+        self.signature_allowlisted_max_action = os.getenv(
+            "SIGNATURE_ALLOWLISTED_MAX_ACTION",
+            self.signature_allowlisted_max_action,
+        )
+        self.signature_dns_long_query_chars = _get_int_env(
+            "SIGNATURE_DNS_LONG_QUERY_CHARS",
+            self.signature_dns_long_query_chars,
+        )
+        self.signature_dns_txt_min_chars = _get_int_env(
+            "SIGNATURE_DNS_TXT_MIN_CHARS",
+            self.signature_dns_txt_min_chars,
+        )
+        self.signature_dns_entropy_min_chars = _get_int_env(
+            "SIGNATURE_DNS_ENTROPY_MIN_CHARS",
+            self.signature_dns_entropy_min_chars,
+        )
+        self.signature_dns_entropy_threshold = _get_float_env(
+            "SIGNATURE_DNS_ENTROPY_THRESHOLD",
+            self.signature_dns_entropy_threshold,
+        )
+        self.behavior_enabled = _get_bool_env(
+            "BEHAVIOR_ENABLED",
+            self.behavior_enabled,
+        )
+        self.behavior_window_seconds = _get_int_env(
+            "BEHAVIOR_WINDOW_SECONDS",
+            self.behavior_window_seconds,
+        )
+        self.behavior_port_scan_min_ports = _get_int_env(
+            "BEHAVIOR_PORT_SCAN_MIN_PORTS",
+            self.behavior_port_scan_min_ports,
+        )
+        self.behavior_fanout_min_hosts = _get_int_env(
+            "BEHAVIOR_FANOUT_MIN_HOSTS",
+            self.behavior_fanout_min_hosts,
+        )
+        self.behavior_port_scan_score = _get_int_env(
+            "BEHAVIOR_PORT_SCAN_SCORE",
+            self.behavior_port_scan_score,
+        )
+        self.behavior_fanout_score = _get_int_env(
+            "BEHAVIOR_FANOUT_SCORE",
+            self.behavior_fanout_score,
         )
         self.opensearch_enabled = _get_bool_env(
             "OPENSEARCH_ENABLED",

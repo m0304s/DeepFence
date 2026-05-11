@@ -12,7 +12,8 @@ from deepfence_common.config import (
 from deepfence_common.event_store import OpenSearchEventStore, serialize_detection_event
 from deepfence_common.logging import log_context
 from deepfence_common.schemas import DetectionResult, FlowKey, FlowRecord, PacketEvent
-from deepfence_common.signatures import SignatureMatch, evaluate_flow_signatures
+from deepfence_common.signatures import evaluate_flow_signatures
+from deepfence_common.signature_types import SignatureMatch
 
 __all__ = [
     "DetectionResult",
