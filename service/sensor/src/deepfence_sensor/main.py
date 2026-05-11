@@ -1,101 +1,14 @@
-"""센서 진입점."""
+"""센서 진입점 (Suricata 기반 분산형 아키텍처)."""
+
+import time
+from pathlib import Path
 
 from deepfence_common import RuntimeConfig, RuntimePaths, log_context
 from deepfence_common.logging import configure_logging
 
-from deepfence_sensor.feature_extractor import FeatureExtractor
-from deepfence_sensor.flow_table import FlowTable
-from deepfence_sensor.live_source import capture_live_packets, current_timestamp
+from deepfence_sensor.suricata_runner import SuricataRunner
+from deepfence_sensor.suricata_source import SuricataTailer
 from deepfence_sensor.mock_source import load_mock_flow
-
-
-def _is_signature_candidate_snapshot(snapshot, config: RuntimeConfig) -> bool:
-    """짧은 시그니처성 TCP probe는 센서 필터에서 통과시킨다."""
-    if snapshot.key.protocol.upper() != "TCP":
-        return False
-
-    sensitive_ports = {int(port) for port in (config.sensitive_port_scores or {})}
-    if snapshot.key.dst_port not in sensitive_ports:
-        return False
-
-    packets = [*snapshot.forward_packets, *snapshot.backward_packets]
-    if len(packets) < 2:
-        return False
-    if len(packets) > config.signature_probe_max_packets:
-        return False
-
-    total_payload_bytes = sum(packet.payload_bytes for packet in packets)
-    if total_payload_bytes > config.signature_probe_max_payload_bytes:
-        return False
-
-    return True
-
-
-def _skip_reason_for_live_snapshot(snapshot, config: RuntimeConfig) -> str | None:
-    """실시간 추론에서 제외할 플로우 사유."""
-    protocol = snapshot.key.protocol.upper()
-    if protocol not in {"TCP", "UDP"}:
-        return "unsupported-protocol"
-
-    if snapshot.key.src_port == 0 and snapshot.key.dst_port == 0:
-        return "missing-ports"
-
-    total_packets = len(snapshot.forward_packets) + len(snapshot.backward_packets)
-    if total_packets < 3:
-        if _is_signature_candidate_snapshot(snapshot, config):
-            return None
-        return "too-few-packets"
-
-    if protocol == "TCP":
-        forward_flags = set().union(*(packet.flags for packet in snapshot.forward_packets), frozenset())
-        backward_flags = set().union(*(packet.flags for packet in snapshot.backward_packets), frozenset())
-        all_packets = [*snapshot.forward_packets, *snapshot.backward_packets]
-
-        # 이미 데이터가 오갔거나 연결 종료 플래그가 있으면 성립된 세션으로 본다.
-        if any(packet.payload_bytes > 0 for packet in all_packets):
-            return None
-        if "FIN" in forward_flags or "FIN" in backward_flags or "RST" in forward_flags or "RST" in backward_flags:
-            return None
-
-        # 정방향 SYN, 역방향 SYN/ACK, 정방향 ACK가 모두 있으면 정상 3-way handshake로 본다.
-        handshake_complete = (
-            "SYN" in forward_flags
-            and "SYN" in backward_flags
-            and "ACK" in backward_flags
-            and "ACK" in forward_flags
-        )
-        if handshake_complete:
-            return None
-
-        # 캡처 시점이 중간이더라도 양방향 ACK가 충분하면 이미 성립된 연결로 본다.
-        ack_bidirectional = "ACK" in forward_flags and "ACK" in backward_flags
-        if ack_bidirectional and total_packets >= 4:
-            return None
-
-        if _is_signature_candidate_snapshot(snapshot, config):
-            return None
-
-        return "incomplete-tcp-session"
-
-    return None
-
-
-def _build_live_flow(snapshot, extractor: FeatureExtractor, config: RuntimeConfig):
-    """실시간 스냅샷을 FlowRecord로 변환."""
-    flow = extractor.extract(snapshot)
-    flow.metadata["source"] = "실시간-패킷-수집"
-    flow.metadata["capture_interface"] = config.capture_interface
-    return flow
-
-
-def _build_snapshot_context(snapshot) -> dict[str, str]:
-    key = snapshot.key
-    flow_id = f"{key.protocol}:{key.src_ip}:{key.src_port}->{key.dst_ip}:{key.dst_port}"
-    return {
-        "flow_id": flow_id,
-        "src": f"{key.src_ip}:{key.src_port}",
-        "dst": f"{key.dst_ip}:{key.dst_port}",
-    }
 
 
 def emit_sample_flow(paths: RuntimePaths, config: RuntimeConfig):
@@ -106,88 +19,31 @@ def emit_sample_flow(paths: RuntimePaths, config: RuntimeConfig):
     return flow
 
 
-def capture_live_flow(paths: RuntimePaths, config: RuntimeConfig):
-    """실시간 패킷으로 플로우 1건 생성."""
-    logger = configure_logging("deepfence.sensor")
-    table = FlowTable()
-
-    for packet in capture_live_packets(config):
-        table.observe(packet)
-
-    snapshot = table.export_one()
-    extractor = FeatureExtractor(paths)
-    flow = extractor.extract(snapshot)
-    flow.metadata["source"] = "실시간-패킷-수집"
-    flow.metadata["capture_interface"] = config.capture_interface
-    logger.info(
-        "실시간 플로우 생성: %s -> %s (%s)",
-        flow.key.src_ip,
-        flow.key.dst_ip,
-        config.capture_interface,
-    )
-    return flow
+def build_live_runtime(paths: RuntimePaths, config: RuntimeConfig):
+    """상시 수집형 센서 구성 (Suricata 서브프로세스 및 꼬리읽기)."""
+    log_dir = Path("/tmp/suricata_deepfence")
+    runner = SuricataRunner(config, log_dir)
+    tailer = SuricataTailer(log_dir, paths)
+    
+    # 여기서 프로세스를 시작하지만 외부 관리자가 통제할 수도 있음.
+    runner.start()
+    time.sleep(2)  # Suricata 초기화 대기
+    return runner, tailer
 
 
-def build_live_runtime(paths: RuntimePaths):
-    """상시 수집형 센서 구성."""
-    return FlowTable(), FeatureExtractor(paths)
-
-
-def collect_live_flows(table: FlowTable, extractor: FeatureExtractor, config: RuntimeConfig):
-    """실시간 패킷 묶음 수집 후 종료된 플로우 반환."""
-    logger = configure_logging("deepfence.sensor")
-    for packet in capture_live_packets(config):
-        table.observe(packet)
-
-    snapshots = table.export_expired(
-        current_time=current_timestamp(),
-        idle_timeout_seconds=config.flow_idle_timeout_seconds,
-    )
-
-    flows = []
-    for snapshot in snapshots:
-        skip_reason = _skip_reason_for_live_snapshot(snapshot, config)
-        if skip_reason is not None:
-            with log_context(**_build_snapshot_context(snapshot)):
-                logger.info(
-                    "플로우 제외: reason=%s %s:%s -> %s:%s proto=%s packets=%s",
-                    skip_reason,
-                    snapshot.key.src_ip,
-                    snapshot.key.src_port,
-                    snapshot.key.dst_ip,
-                    snapshot.key.dst_port,
-                    snapshot.key.protocol,
-                    len(snapshot.forward_packets) + len(snapshot.backward_packets),
-                )
-            continue
-        flows.append(_build_live_flow(snapshot, extractor, config))
+def collect_live_flows(tailer: SuricataTailer, config: RuntimeConfig):
+    """실시간 Suricata 이벤트 파싱 후 플로우 반환."""
+    # 비동기로 쌓인 이벤트를 한번에 읽어들임.
+    flows = list(tailer.tail())
     return flows
 
 
-def flush_live_flows(table: FlowTable, extractor: FeatureExtractor, config: RuntimeConfig):
-    """남아 있는 플로우 전체 반환."""
-    logger = configure_logging("deepfence.sensor")
-    flows = []
-    for snapshot in table.export_all():
-        skip_reason = _skip_reason_for_live_snapshot(snapshot, config)
-        if skip_reason is not None:
-            with log_context(**_build_snapshot_context(snapshot)):
-                logger.info(
-                    "종료 시 플로우 제외: reason=%s %s:%s -> %s:%s proto=%s packets=%s",
-                    skip_reason,
-                    snapshot.key.src_ip,
-                    snapshot.key.src_port,
-                    snapshot.key.dst_ip,
-                    snapshot.key.dst_port,
-                    snapshot.key.protocol,
-                    len(snapshot.forward_packets) + len(snapshot.backward_packets),
-                )
-            continue
-        flows.append(_build_live_flow(snapshot, extractor, config))
-    return flows
+def flush_live_flows(tailer: SuricataTailer, config: RuntimeConfig):
+    """남아 있는 플로우 반환."""
+    return collect_live_flows(tailer, config)
 
 
 def main() -> None:
     """센서 런타임 시작."""
     logger = configure_logging("deepfence.sensor")
-    logger.info("센서 런타임 시작")
+    logger.info("센서 런타임 시작 (Suricata Mode)")

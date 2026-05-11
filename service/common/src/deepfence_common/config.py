@@ -82,7 +82,8 @@ class RuntimeConfig:
     behavior_enabled: bool = True
     behavior_window_seconds: int = 60
     behavior_port_scan_min_ports: int = 3
-    behavior_fanout_min_hosts: int = 3
+    behavior_fanout_min_hosts: int = 50
+    behavior_fanout_exempt_ports: tuple[int, ...] = (80, 443, 8080, 8443)
     behavior_port_scan_score: int = 35
     behavior_fanout_score: int = 35
     opensearch_enabled: bool = False
@@ -267,6 +268,12 @@ class RuntimeConfig:
         self.behavior_fanout_min_hosts = _get_int_env(
             "BEHAVIOR_FANOUT_MIN_HOSTS",
             self.behavior_fanout_min_hosts,
+        )
+        self.behavior_fanout_exempt_ports = tuple(
+            int(p) for p in _get_tuple_env(
+                "BEHAVIOR_FANOUT_EXEMPT_PORTS",
+                tuple(str(p) for p in self.behavior_fanout_exempt_ports),
+            )
         )
         self.behavior_port_scan_score = _get_int_env(
             "BEHAVIOR_PORT_SCAN_SCORE",

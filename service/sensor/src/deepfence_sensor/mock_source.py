@@ -1,131 +1,53 @@
-"""샘플 패킷 시퀀스 생성."""
+"""샘플 패킷 시퀀스 생성 (Scapy 제거)."""
 
 from __future__ import annotations
+import json
 
-from deepfence_common import PacketEvent, RuntimeConfig, RuntimePaths
-
-from deepfence_sensor.feature_extractor import FeatureExtractor
-from deepfence_sensor.flow_table import FlowTable
-
-
-def build_sample_packets() -> list[PacketEvent]:
-    """샘플 패킷 시퀀스 생성."""
-    return [
-        PacketEvent(
-            timestamp=0.0000,
-            src_ip="192.0.2.10",
-            dst_ip="198.51.100.20",
-            src_port=51515,
-            dst_port=443,
-            protocol="TCP",
-            length=74,
-            payload_bytes=0,
-            header_length=20,
-            window_bytes=64240,
-            flags=frozenset({"SYN"}),
-        ),
-        PacketEvent(
-            timestamp=0.0100,
-            src_ip="198.51.100.20",
-            dst_ip="192.0.2.10",
-            src_port=443,
-            dst_port=51515,
-            protocol="TCP",
-            length=74,
-            payload_bytes=0,
-            header_length=20,
-            window_bytes=65535,
-            flags=frozenset({"SYN", "ACK"}),
-        ),
-        PacketEvent(
-            timestamp=0.0200,
-            src_ip="192.0.2.10",
-            dst_ip="198.51.100.20",
-            src_port=51515,
-            dst_port=443,
-            protocol="TCP",
-            length=66,
-            payload_bytes=0,
-            header_length=20,
-            window_bytes=64240,
-            flags=frozenset({"ACK"}),
-        ),
-        PacketEvent(
-            timestamp=0.0400,
-            src_ip="192.0.2.10",
-            dst_ip="198.51.100.20",
-            src_port=51515,
-            dst_port=443,
-            protocol="TCP",
-            length=512,
-            payload_bytes=446,
-            header_length=20,
-            window_bytes=64240,
-            flags=frozenset({"PSH", "ACK"}),
-        ),
-        PacketEvent(
-            timestamp=0.0800,
-            src_ip="198.51.100.20",
-            dst_ip="192.0.2.10",
-            src_port=443,
-            dst_port=51515,
-            protocol="TCP",
-            length=620,
-            payload_bytes=554,
-            header_length=20,
-            window_bytes=65535,
-            flags=frozenset({"PSH", "ACK"}),
-        ),
-        PacketEvent(
-            timestamp=0.1200,
-            src_ip="192.0.2.10",
-            dst_ip="198.51.100.20",
-            src_port=51515,
-            dst_port=443,
-            protocol="TCP",
-            length=66,
-            payload_bytes=0,
-            header_length=20,
-            window_bytes=64240,
-            flags=frozenset({"FIN", "ACK"}),
-        ),
-        PacketEvent(
-            timestamp=0.1300,
-            src_ip="198.51.100.20",
-            dst_ip="192.0.2.10",
-            src_port=443,
-            dst_port=51515,
-            protocol="TCP",
-            length=66,
-            payload_bytes=0,
-            header_length=20,
-            window_bytes=65535,
-            flags=frozenset({"FIN", "ACK"}),
-        ),
-        PacketEvent(
-            timestamp=0.1400,
-            src_ip="192.0.2.10",
-            dst_ip="198.51.100.20",
-            src_port=51515,
-            dst_port=443,
-            protocol="TCP",
-            length=54,
-            payload_bytes=0,
-            header_length=20,
-            window_bytes=64240,
-            flags=frozenset({"ACK"}),
-        ),
-    ]
-
+from deepfence_common import RuntimeConfig, RuntimePaths
+from deepfence_common.schemas import FlowKey, FlowRecord
 
 def load_mock_flow(paths: RuntimePaths, config: RuntimeConfig):
-    """샘플 패킷 시퀀스로 플로우 1건 생성."""
-    table = FlowTable()
-    for packet in build_sample_packets():
-        table.observe(packet)
-
-    extractor = FeatureExtractor(paths)
-    snapshot = table.export_one()
-    flow = extractor.extract(snapshot)
-    flow.metadata["sample_index"] = config.sample_index
-    return flow
+    """샘플 플로우 1건 직접 생성."""
+    key = FlowKey(
+        src_ip="192.0.2.10",
+        dst_ip="198.51.100.20",
+        src_port=51515,
+        dst_port=443,
+        protocol="TCP"
+    )
+    
+    feature_names_path = paths.processed_dir / "feature_names.json"
+    with feature_names_path.open(encoding="utf-8") as f:
+        feature_names = json.load(f)
+    
+    features = {name: 0.0 for name in feature_names}
+    
+    # 더미 피처 덮어쓰기
+    features.update({
+        "Dst Port": 443.0,
+        "Protocol": 6.0,
+        "Flow Duration": 0.14,
+        "Tot Fwd Pkts": 4.0,
+        "Tot Bwd Pkts": 4.0,
+        "TotLen Fwd Pkts": 642.0,
+        "TotLen Bwd Pkts": 760.0,
+        "Flow Byts/s": 10014.28,
+        "Flow Pkts/s": 57.14,
+    })
+    
+    metadata = {
+        "source": "샘플-패킷-시퀀스",
+        "sample_index": config.sample_index,
+        "packet_count": 8,
+        "forward_packets": 4,
+        "backward_packets": 4,
+        "total_payload_bytes": 1000,
+        "payload_preview": "GET / HTTP/1.1\\r\\nHost: example.com\\r\\n\\r\\n",
+        "http_is_plaintext": True,
+        "http_method": "GET",
+        "http_path": "/",
+        "http_query": "",
+        "http_host": "example.com",
+    }
+    
+    return FlowRecord(key=key, features=features, metadata=metadata, pre_scaled=False)

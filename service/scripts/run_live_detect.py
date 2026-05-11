@@ -36,18 +36,9 @@ def _validate_runtime_inputs(paths, config) -> None:
     for path, description in required_files:
         _require_file(path, description)
 
-    try:
-        from scapy.all import get_if_list
-    except ImportError as error:
-        raise RuntimeError("scapy 패키지가 필요합니다.") from error
-
-    interfaces = set(get_if_list())
-    if config.capture_interface not in interfaces:
-        joined = ", ".join(sorted(interfaces))
-        raise ValueError(
-            f"캡처 인터페이스 '{config.capture_interface}'를 찾을 수 없습니다. "
-            f"사용 가능한 인터페이스: {joined}"
-        )
+    # Scapy 대신 Suricata를 사용하므로 인터페이스 확인 로직 생략 (또는 별도 구현)
+    if not config.capture_interface:
+        raise ValueError("캡처 인터페이스(config.capture_interface)가 설정되지 않았습니다.")
 
     if sys.platform == "darwin" and os.geteuid() != 0:
         raise PermissionError(
@@ -113,6 +104,7 @@ def main() -> None:
     _extend_sys_path(project_root)
 
     from deepfence_blocker.main import build_policy
+    from deepfence_blocker.suricata_updater import SuricataUpdater
     from deepfence_common import (
         OpenSearchEventStore,
         RuntimeConfig,
@@ -132,15 +124,16 @@ def main() -> None:
 
     predictor = build_predictor(paths, config)
     policy = build_policy(config)
-    table, extractor = build_live_runtime(paths)
+    updater = SuricataUpdater(config)
+    runner, tailer = build_live_runtime(paths, config)
     event_store = OpenSearchEventStore(config) if config.opensearch_enabled else None
 
     logger.info("상시 수집 시작: interface=%s", config.capture_interface)
     try:
         while True:
-            flows = collect_live_flows(table, extractor, config)
+            flows = collect_live_flows(tailer, config)
             if not flows:
-                logger.info("처리 가능한 종료 플로우 없음")
+                logger.debug("처리 가능한 종료 플로우 없음")
             for flow in flows:
                 with log_context(**_build_flow_context(flow)):
                     result = policy.apply(predictor.predict(flow))
@@ -152,12 +145,20 @@ def main() -> None:
                     )
                 ):
                     _log_detection_result(logger, "실시간 파이프라인 완료", result)
+                    if result.should_block:
+                        updater.block_ip(result.flow.key.src_ip, result.policy_reason)
+                        
                     if event_store is not None:
                         event_store.save(result)
             sleep(config.loop_sleep_seconds)
     except KeyboardInterrupt:
         logger.info("중단 신호 수신, 남은 플로우 정리 시작")
-        for flow in flush_live_flows(table, extractor, config):
+        
+        # Suricata를 먼저 종료해야 메모리에 버퍼링된 플로우들이 eve.json에 강제 플러시됨
+        runner.stop()
+        sleep(1) # 파일 I/O 대기
+        
+        for flow in flush_live_flows(tailer, config):
             with log_context(**_build_flow_context(flow)):
                 result = policy.apply(predictor.predict(flow))
             with log_context(
@@ -168,6 +169,9 @@ def main() -> None:
                 )
             ):
                 _log_detection_result(logger, "종료 전 플로우 처리", result)
+                if result.should_block:
+                    updater.block_ip(result.flow.key.src_ip, result.policy_reason)
+                    
                 if event_store is not None:
                     event_store.save(result)
         logger.info("상시 수집 종료")

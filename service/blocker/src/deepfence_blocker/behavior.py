@@ -58,7 +58,10 @@ class BehaviorTracker:
             )
 
         host_count = self._unique_hosts_for(result.flow.key.src_ip, result.flow.key.dst_port)
-        if host_count >= self._config.behavior_fanout_min_hosts:
+        if (
+            host_count >= self._config.behavior_fanout_min_hosts
+            and result.flow.key.dst_port not in self._config.behavior_fanout_exempt_ports
+        ):
             matches.append(
                 BehaviorMatch(
                     rule_id="behavior-fanout",
