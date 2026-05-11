@@ -8,6 +8,30 @@ from time import time
 from deepfence_common import PacketEvent, RuntimeConfig
 
 
+_PAYLOAD_PREVIEW_BYTES = 512
+
+
+def _payload_preview(packet) -> str:
+    """룰 평가용으로 짧은 printable payload preview만 보관."""
+    if not packet.haslayer("Raw"):
+        return ""
+    raw_payload = bytes(getattr(packet["Raw"], "load", b""))[:_PAYLOAD_PREVIEW_BYTES]
+    return raw_payload.decode("latin-1", errors="ignore")
+
+
+def _dns_query(packet) -> tuple[str, str]:
+    if not packet.haslayer("DNSQR"):
+        return "", ""
+    query = packet["DNSQR"]
+    qname = getattr(query, "qname", b"")
+    if isinstance(qname, bytes):
+        qname_text = qname.decode("utf-8", errors="ignore")
+    else:
+        qname_text = str(qname)
+    qtype = str(getattr(query, "qtype", ""))
+    return qname_text.rstrip("."), qtype
+
+
 def _flag_set(tcp_layer) -> frozenset[str]:
     """TCP 플래그 집합 변환."""
     flags = set()
@@ -42,6 +66,8 @@ def _to_packet_event(packet) -> PacketEvent | None:
     payload_bytes = max(len(bytes(packet)) - header_length, 0)
     window_bytes = 0
     flags = frozenset()
+    payload_preview = _payload_preview(packet)
+    dns_query, dns_query_type = _dns_query(packet)
 
     if packet.haslayer("TCP"):
         tcp_layer = packet["TCP"]
@@ -70,6 +96,9 @@ def _to_packet_event(packet) -> PacketEvent | None:
         header_length=header_length,
         window_bytes=window_bytes,
         flags=flags,
+        payload_preview=payload_preview,
+        dns_query=dns_query,
+        dns_query_type=dns_query_type,
     )
 
 

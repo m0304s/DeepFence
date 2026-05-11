@@ -18,6 +18,9 @@ class PacketEvent:
     header_length: int = 20
     window_bytes: int = 0
     flags: frozenset[str] = field(default_factory=frozenset)
+    payload_preview: str = ""
+    dns_query: str = ""
+    dns_query_type: str = ""
 
 
 @dataclass(slots=True)
@@ -56,5 +59,6 @@ class DetectionResult:
     action: str = "log"
     matched_rules: tuple[str, ...] = field(default_factory=tuple)
     matched_signatures: tuple[str, ...] = field(default_factory=tuple)
+    matched_behaviors: tuple[str, ...] = field(default_factory=tuple)
     suspicious: bool = False
     suspicious_reason: str = ""

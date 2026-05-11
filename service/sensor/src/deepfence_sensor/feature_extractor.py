@@ -9,6 +9,7 @@ from pathlib import Path
 import numpy as np
 
 from deepfence_common import FlowRecord, RuntimePaths, load_asset_catalog
+from deepfence_common.http_parser import parse_http_request
 
 from deepfence_sensor.flow_table import FlowSnapshot
 
@@ -48,6 +49,11 @@ def _is_likely_server_port(port: int) -> bool:
     return port in {22, 53, 80, 123, 443, 445, 5223, 5228, 8080, 8443}
 
 
+def _joined_limited(values: list[str], limit: int = 2048) -> str:
+    text = "\n".join(value for value in values if value)
+    return text[:limit]
+
+
 class FeatureExtractor:
     """플로우 스냅샷을 모델 입력 피처로 변환."""
 
@@ -84,6 +90,14 @@ class FeatureExtractor:
         total_payload_bytes = sum(packet.payload_bytes for packet in packets)
         forward_payload_bytes = sum(packet.payload_bytes for packet in forward)
         backward_payload_bytes = sum(packet.payload_bytes for packet in backward)
+        payload_preview = _joined_limited([packet.payload_preview for packet in packets])
+        http_request = parse_http_request(payload_preview)
+        dns_queries = ",".join(
+            dict.fromkeys(packet.dns_query for packet in packets if packet.dns_query)
+        )
+        dns_query_types = ",".join(
+            dict.fromkeys(packet.dns_query_type for packet in packets if packet.dns_query_type)
+        )
         total_packets = len(packets)
         fwd_count = len(forward)
         bwd_count = len(backward)
@@ -204,12 +218,24 @@ class FeatureExtractor:
             features=features,
             metadata={
                 "source": "샘플-패킷-시퀀스",
+                "flow_started_at": snapshot.started_at,
+                "flow_ended_at": snapshot.ended_at,
                 "packet_count": total_packets,
                 "forward_packets": fwd_count,
                 "backward_packets": bwd_count,
                 "total_payload_bytes": total_payload_bytes,
                 "forward_payload_bytes": forward_payload_bytes,
                 "backward_payload_bytes": backward_payload_bytes,
+                "payload_preview": payload_preview,
+                "http_is_plaintext": http_request is not None,
+                "http_method": http_request.method if http_request else "",
+                "http_path": http_request.path if http_request else "",
+                "http_query": http_request.query if http_request else "",
+                "http_host": http_request.host if http_request else "",
+                "http_user_agent": http_request.user_agent if http_request else "",
+                "http_body_preview": http_request.body_preview if http_request else "",
+                "dns_queries": dns_queries,
+                "dns_query_types": dns_query_types,
                 "src_asset_roles": src_roles,
                 "dst_asset_roles": dst_roles,
                 "src_is_trusted_service": src_is_trusted_service,
