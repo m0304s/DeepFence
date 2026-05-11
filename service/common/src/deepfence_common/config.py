@@ -53,6 +53,10 @@ class RuntimeConfig:
     suspicious_secondary_threshold: float = 0.25
     suspicious_gap_threshold: float = 0.20
     suspicious_score: int = 25
+    signature_enabled: bool = True
+    signature_rule_scores: dict[str, int] | None = None
+    signature_probe_max_packets: int = 8
+    signature_probe_max_payload_bytes: int = 32
     opensearch_enabled: bool = False
     opensearch_url: str = "http://localhost:9200"
     opensearch_index: str = "deepfence-events"
@@ -151,6 +155,27 @@ class RuntimeConfig:
         self.suspicious_score = _get_int_env(
             "SUSPICIOUS_SCORE",
             self.suspicious_score,
+        )
+        self.signature_enabled = _get_bool_env(
+            "SIGNATURE_ENABLED",
+            self.signature_enabled,
+        )
+        self.signature_rule_scores = _get_int_mapping_env(
+            "SIGNATURE_RULE_SCORES",
+            self.signature_rule_scores
+            or {
+                "tcp-sensitive-port-probe": 35,
+                "tcp-half-open-probe": 25,
+                "tcp-rst-probe": 20,
+            },
+        )
+        self.signature_probe_max_packets = _get_int_env(
+            "SIGNATURE_PROBE_MAX_PACKETS",
+            self.signature_probe_max_packets,
+        )
+        self.signature_probe_max_payload_bytes = _get_int_env(
+            "SIGNATURE_PROBE_MAX_PAYLOAD_BYTES",
+            self.signature_probe_max_payload_bytes,
         )
         self.opensearch_enabled = _get_bool_env(
             "OPENSEARCH_ENABLED",

@@ -30,6 +30,7 @@ def serialize_detection_event(result: DetectionResult) -> dict[str, object]:
         "policy_reason": result.policy_reason,
         "observation_count": result.observation_count,
         "matched_rules": list(result.matched_rules),
+        "matched_signatures": list(result.matched_signatures),
         "suspicious": result.suspicious,
         "suspicious_reason": result.suspicious_reason,
         "src_ip": key.src_ip,
