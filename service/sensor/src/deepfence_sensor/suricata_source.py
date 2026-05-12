@@ -170,6 +170,42 @@ class SuricataTailer:
                 }
             return None
         
+        # P3: Suricata 네이티브 얼럿 처리
+        if event_type == "alert":
+            alert_data = event.get("alert", {})
+            signature = alert_data.get("signature", "Unknown Suricata Alert")
+            signature_id = alert_data.get("signature_id", 0)
+            severity = alert_data.get("severity", 3)
+            
+            # 우리가 동적으로 추가한 차단 룰로 인한 얼럿은 무시 (무한 루프 방지)
+            if signature_id >= 1000000 or signature.startswith("DeepFence ML Block"):
+                return None
+                
+            src_ip = event.get("src_ip", "")
+            dst_ip = event.get("dest_ip", "")
+            src_port = event.get("src_port", 0)
+            dst_port = event.get("dest_port", 0)
+            protocol = event.get("proto", "TCP")
+            
+            if self._is_noise_ip(dst_ip) or self._is_noise_ip(src_ip):
+                return None
+                
+            key = FlowKey(
+                src_ip=src_ip,
+                dst_ip=dst_ip,
+                src_port=src_port,
+                dst_port=dst_port,
+                protocol=protocol
+            )
+            
+            features = {name: 0.0 for name in self._feature_names}
+            metadata = {
+                "source": "suricata-alert",
+                "suricata_alert_signature": signature,
+                "suricata_alert_severity": severity,
+            }
+            return FlowRecord(key=key, features=features, metadata=metadata, pre_scaled=False)
+            
         # flow 이벤트만 처리
         if event_type != "flow":
             return None

@@ -118,6 +118,15 @@ class DetectOnlyPolicy:
         risk_score = 0
         observation_count = 0
         signature_rules, signature_score = self._signature_matches_for(result)
+        
+        # P3: Suricata 네이티브 얼럿 (ET Rules 등)
+        suricata_signature = result.flow.metadata.get("suricata_alert_signature")
+        if suricata_signature:
+            severity = result.flow.metadata.get("suricata_alert_severity", 3)
+            # severity가 낮을수록 심각 (1: High, 2: Medium, 3: Low)
+            alert_score = 100 if severity <= 2 else 50
+            risk_score += alert_score
+            matched_rules.append(f"suricata-alert({suricata_signature}:+{alert_score})")
 
         if src_ip in self._config.whitelist_ips or dst_ip in self._config.whitelist_ips:
             matched_rules.append("whitelisted-ip")
@@ -138,7 +147,11 @@ class DetectOnlyPolicy:
                 matched_rules.extend(behavior_rules)
             action = self._action_for_score(risk_score)
             action = self._cap_action_before_repeat(action)
-            action = self._cap_action(action, self._config.signature_allowlisted_max_action)
+            
+            # P3: Suricata 얼럿이 강력한 경우 (alert_score 100 이상) 캡슐화 우회
+            if not suricata_signature or alert_score < 100:
+                action = self._cap_action(action, self._config.signature_allowlisted_max_action)
+                
             return risk_score, action, matched_rules, "allowlisted-label", 0
 
         if (

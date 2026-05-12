@@ -131,6 +131,7 @@ def main() -> None:
     logger.info("상시 수집 시작: interface=%s", config.capture_interface)
     try:
         while True:
+            updater.cleanup_expired_rules()
             flows = collect_live_flows(tailer, config)
             if not flows:
                 logger.debug("처리 가능한 종료 플로우 없음")

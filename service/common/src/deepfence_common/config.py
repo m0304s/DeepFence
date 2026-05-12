@@ -100,6 +100,7 @@ class RuntimeConfig:
     capture_timeout_seconds: int = 10
     flow_idle_timeout_seconds: int = 15
     loop_sleep_seconds: float = 1.0
+    suricata_block_ttl_seconds: int = 3600
 
     def __post_init__(self) -> None:
         """환경 변수로 런타임 설정 덮어쓰기."""
@@ -311,6 +312,10 @@ class RuntimeConfig:
         self.loop_sleep_seconds = _get_float_env(
             "LOOP_SLEEP_SECONDS",
             self.loop_sleep_seconds,
+        )
+        self.suricata_block_ttl_seconds = _get_int_env(
+            "SURICATA_BLOCK_TTL_SECONDS",
+            self.suricata_block_ttl_seconds,
         )
 
 
