@@ -57,6 +57,35 @@ class RuntimeConfig:
     signature_rule_scores: dict[str, int] | None = None
     signature_probe_max_packets: int = 8
     signature_probe_max_payload_bytes: int = 32
+    signature_allowlisted_max_action: str = "suspicious"
+    signature_dns_long_query_chars: int = 80
+    signature_dns_txt_min_chars: int = 40
+    signature_dns_entropy_min_chars: int = 50
+    signature_dns_entropy_threshold: float = 4.0
+    signature_dns_suspicious_tlds: tuple[str, ...] = (
+        ".tk",
+        ".ml",
+        ".ga",
+        ".cf",
+        ".gq",
+        ".xyz",
+        ".top",
+        ".pw",
+        ".cc",
+        ".su",
+    )
+    signature_dns_subdomain_max_chars: int = 60
+    ti_enabled: bool = False
+    ti_update_interval_seconds: int = 3600
+    ti_ip_feed_url: str = "https://rules.emergingthreats.net/blockrules/compromised-ips.txt"
+    ti_domain_feed_url: str = "https://urlhaus.abuse.ch/downloads/hostfile/"
+    behavior_enabled: bool = True
+    behavior_window_seconds: int = 60
+    behavior_port_scan_min_ports: int = 3
+    behavior_fanout_min_hosts: int = 50
+    behavior_fanout_exempt_ports: tuple[int, ...] = (80, 443, 8080, 8443)
+    behavior_port_scan_score: int = 35
+    behavior_fanout_score: int = 35
     opensearch_enabled: bool = False
     opensearch_url: str = "http://localhost:9200"
     opensearch_index: str = "deepfence-events"
@@ -71,6 +100,7 @@ class RuntimeConfig:
     capture_timeout_seconds: int = 10
     flow_idle_timeout_seconds: int = 15
     loop_sleep_seconds: float = 1.0
+    suricata_block_ttl_seconds: int = 3600
 
     def __post_init__(self) -> None:
         """환경 변수로 런타임 설정 덮어쓰기."""
@@ -164,9 +194,22 @@ class RuntimeConfig:
             "SIGNATURE_RULE_SCORES",
             self.signature_rule_scores
             or {
-                "tcp-sensitive-port-probe": 35,
-                "tcp-half-open-probe": 25,
-                "tcp-rst-probe": 20,
+                "tcp-sensitive-port-probe": 30,
+                "tcp-half-open-probe": 20,
+                "tcp-rst-probe": 10,
+                "http-sqli-keyword": 70,
+                "http-xss-keyword": 60,
+                "http-os-command-injection": 75,
+                "http-path-traversal": 50,
+                "http-suspicious-user-agent": 45,
+                "http-known-exploit-marker": 75,
+                "dns-long-query": 30,
+                "dns-suspicious-txt-query": 35,
+                "dns-high-entropy-query": 30,
+                "dns-suspicious-tld": 25,
+                "dns-tunneling-suspected": 60,
+                "ti-malicious-ip": 90,
+                "ti-malicious-domain": 90,
             },
         )
         self.signature_probe_max_packets = _get_int_env(
@@ -176,6 +219,70 @@ class RuntimeConfig:
         self.signature_probe_max_payload_bytes = _get_int_env(
             "SIGNATURE_PROBE_MAX_PAYLOAD_BYTES",
             self.signature_probe_max_payload_bytes,
+        )
+        self.signature_allowlisted_max_action = os.getenv(
+            "SIGNATURE_ALLOWLISTED_MAX_ACTION",
+            self.signature_allowlisted_max_action,
+        )
+        self.signature_dns_long_query_chars = _get_int_env(
+            "SIGNATURE_DNS_LONG_QUERY_CHARS",
+            self.signature_dns_long_query_chars,
+        )
+        self.signature_dns_txt_min_chars = _get_int_env(
+            "SIGNATURE_DNS_TXT_MIN_CHARS",
+            self.signature_dns_txt_min_chars,
+        )
+        self.signature_dns_entropy_min_chars = _get_int_env(
+            "SIGNATURE_DNS_ENTROPY_MIN_CHARS",
+            self.signature_dns_entropy_min_chars,
+        )
+        self.signature_dns_entropy_threshold = _get_float_env(
+            "SIGNATURE_DNS_ENTROPY_THRESHOLD",
+            self.signature_dns_entropy_threshold,
+        )
+        self.signature_dns_suspicious_tlds = _get_tuple_env(
+            "SIGNATURE_DNS_SUSPICIOUS_TLDS",
+            self.signature_dns_suspicious_tlds,
+        )
+        self.signature_dns_subdomain_max_chars = _get_int_env(
+            "SIGNATURE_DNS_SUBDOMAIN_MAX_CHARS",
+            self.signature_dns_subdomain_max_chars,
+        )
+        self.ti_enabled = _get_bool_env("TI_ENABLED", self.ti_enabled)
+        self.ti_update_interval_seconds = _get_int_env(
+            "TI_UPDATE_INTERVAL_SECONDS", self.ti_update_interval_seconds
+        )
+        self.ti_ip_feed_url = os.getenv("TI_IP_FEED_URL", self.ti_ip_feed_url)
+        self.ti_domain_feed_url = os.getenv("TI_DOMAIN_FEED_URL", self.ti_domain_feed_url)
+        self.behavior_enabled = _get_bool_env(
+            "BEHAVIOR_ENABLED",
+            self.behavior_enabled,
+        )
+        self.behavior_window_seconds = _get_int_env(
+            "BEHAVIOR_WINDOW_SECONDS",
+            self.behavior_window_seconds,
+        )
+        self.behavior_port_scan_min_ports = _get_int_env(
+            "BEHAVIOR_PORT_SCAN_MIN_PORTS",
+            self.behavior_port_scan_min_ports,
+        )
+        self.behavior_fanout_min_hosts = _get_int_env(
+            "BEHAVIOR_FANOUT_MIN_HOSTS",
+            self.behavior_fanout_min_hosts,
+        )
+        self.behavior_fanout_exempt_ports = tuple(
+            int(p) for p in _get_tuple_env(
+                "BEHAVIOR_FANOUT_EXEMPT_PORTS",
+                tuple(str(p) for p in self.behavior_fanout_exempt_ports),
+            )
+        )
+        self.behavior_port_scan_score = _get_int_env(
+            "BEHAVIOR_PORT_SCAN_SCORE",
+            self.behavior_port_scan_score,
+        )
+        self.behavior_fanout_score = _get_int_env(
+            "BEHAVIOR_FANOUT_SCORE",
+            self.behavior_fanout_score,
         )
         self.opensearch_enabled = _get_bool_env(
             "OPENSEARCH_ENABLED",
@@ -205,6 +312,10 @@ class RuntimeConfig:
         self.loop_sleep_seconds = _get_float_env(
             "LOOP_SLEEP_SECONDS",
             self.loop_sleep_seconds,
+        )
+        self.suricata_block_ttl_seconds = _get_int_env(
+            "SURICATA_BLOCK_TTL_SECONDS",
+            self.suricata_block_ttl_seconds,
         )
 
 

