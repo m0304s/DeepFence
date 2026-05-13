@@ -15,7 +15,7 @@ def evaluate_ti_signatures(
 
     matches: list[SignatureMatch] = []
     
-    # 1. IP 대조
+    # IP 대조
     src_ip = flow.key.src_ip
     dst_ip = flow.key.dst_ip
     
@@ -31,7 +31,7 @@ def evaluate_ti_signatures(
         if score:
             matches.append(SignatureMatch(rule_id, score, f"dst_ip={dst_ip}"))
 
-    # 2. DNS 도메인 대조
+    # DNS 도메인 대조
     queries = [item for item in metadata_text(flow, "dns_queries").split(",") if item]
     for query in queries:
         normalized = query.rstrip(".").lower()
