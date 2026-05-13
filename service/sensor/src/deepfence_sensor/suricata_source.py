@@ -291,7 +291,28 @@ class SuricataTailer:
         
         # P1: CDN/클라우드 트래픽 메타데이터 표시
         is_cloud = self._is_cloud_ip(dst_ip) or self._is_cloud_ip(src_ip)
-        
+
+        # HTTP URL에서 path와 query 분리 추출
+        from urllib.parse import urlparse, unquote
+        http_urls = list(cache["http"])
+        http_path_str = ""
+        http_query_str = ""
+        if http_urls:
+            # 여러 URL이 있을 경우 모두 합쳐서 검사 (SQL 인젝션 등 다수 요청 대비)
+            all_paths = []
+            all_queries = []
+            for raw_url in http_urls:
+                try:
+                    parsed = urlparse(raw_url)
+                    if parsed.path:
+                        all_paths.append(unquote(parsed.path))
+                    if parsed.query:
+                        all_queries.append(unquote(parsed.query))
+                except Exception:
+                    all_paths.append(raw_url)
+            http_path_str = " | ".join(all_paths)
+            http_query_str = " | ".join(all_queries)
+
         metadata = {
             "source": "suricata-eve",
             "packet_count": int(total_pkts),
@@ -300,7 +321,8 @@ class SuricataTailer:
             "total_payload_bytes": int(total_bytes),
             "app_proto": event.get("app_proto", ""),
             "dns_queries": ",".join(cache["dns"]),
-            "http_path": ",".join(cache["http"]),
+            "http_path": http_path_str,
+            "http_query": http_query_str if http_query_str else None,
             "tls_sni": cache.get("tls", {}).get("sni", ""),
             "tls_version": cache.get("tls", {}).get("version", ""),
             "tls_ja3": cache.get("tls", {}).get("ja3", ""),
