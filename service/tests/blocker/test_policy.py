@@ -1,0 +1,620 @@
+from __future__ import annotations
+
+import sys
+import unittest
+from pathlib import Path
+
+
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
+sys.path.insert(0, str(PROJECT_ROOT / "service" / "common" / "src"))
+sys.path.insert(0, str(PROJECT_ROOT / "service" / "blocker" / "src"))
+
+from deepfence_blocker.policy import DetectOnlyPolicy
+from deepfence_common import DetectionResult, FlowKey, FlowRecord, RuntimeConfig
+
+
+def _build_result(
+    label: str,
+    confidence: float,
+    src_ip: str = "198.51.100.10",
+    dst_ip: str = "203.0.113.20",
+    src_port: int = 50000,
+    dst_port: int = 443,
+    protocol: str = "TCP",
+) -> DetectionResult:
+    flow = FlowRecord(
+        key=FlowKey(
+            src_ip=src_ip,
+            dst_ip=dst_ip,
+            src_port=src_port,
+            dst_port=dst_port,
+            protocol=protocol,
+        ),
+        features={},
+    )
+    return DetectionResult(
+        label=label,
+        confidence=confidence,
+        should_block=False,
+        flow=flow,
+        probabilities={label: confidence},
+    )
+
+
+class DetectOnlyPolicyTest(unittest.TestCase):
+    def test_allowlisted_label_is_not_blocked(self) -> None:
+        policy = DetectOnlyPolicy(RuntimeConfig())
+
+        result = policy.apply(_build_result(label="Benign", confidence=0.99))
+
+        self.assertFalse(result.should_block)
+        self.assertEqual(result.risk_score, 0)
+        self.assertEqual(result.action, "log")
+        self.assertEqual(result.matched_rules, ("allowlisted-label",))
+        self.assertEqual(result.policy_reason, "allowlisted-label")
+        self.assertEqual(result.observation_count, 0)
+
+    def test_below_threshold_is_not_blocked(self) -> None:
+        policy = DetectOnlyPolicy(
+            RuntimeConfig(
+                label_allowlist=("Benign",),
+                label_block_thresholds={"Infiltration": 0.70},
+                skip_private_peer_blocking=False,
+            )
+        )
+
+        result = policy.apply(_build_result(label="Infiltration", confidence=0.60))
+
+        self.assertFalse(result.should_block)
+        self.assertEqual(result.risk_score, 0)
+        self.assertEqual(result.action, "log")
+        self.assertEqual(result.matched_rules, ("below-threshold(0.70)",))
+        self.assertEqual(result.policy_reason, "below-threshold(0.70)")
+        self.assertEqual(result.observation_count, 0)
+
+    def test_first_detection_awaits_repeat_before_blocking(self) -> None:
+        policy = DetectOnlyPolicy(
+            RuntimeConfig(
+                label_allowlist=("Benign",),
+                label_block_thresholds={"Infiltration": 0.55},
+                label_risk_scores={"Infiltration": 60},
+                min_block_observations=2,
+                skip_private_peer_blocking=False,
+            )
+        )
+
+        result = policy.apply(_build_result(label="Infiltration", confidence=0.60))
+
+        self.assertFalse(result.should_block)
+        self.assertEqual(result.risk_score, 60)
+        self.assertEqual(result.action, "alert")
+        self.assertEqual(
+            result.matched_rules,
+            ("label-score(Infiltration:+60)", "awaiting-repeat(1/2)"),
+        )
+        self.assertEqual(result.policy_reason, "awaiting-repeat(1/2)")
+        self.assertEqual(result.observation_count, 1)
+
+    def test_second_detection_triggers_block_decision(self) -> None:
+        policy = DetectOnlyPolicy(
+            RuntimeConfig(
+                label_allowlist=("Benign",),
+                label_block_thresholds={"Infiltration": 0.55},
+                label_risk_scores={"Infiltration": 60},
+                repeat_observation_score=25,
+                action_thresholds={
+                    "suspicious": 25,
+                    "alert": 50,
+                    "block_candidate": 80,
+                    "block": 100,
+                },
+                min_block_observations=2,
+                skip_private_peer_blocking=False,
+            )
+        )
+
+        policy.apply(_build_result(label="Infiltration", confidence=0.60))
+        result = policy.apply(_build_result(label="Infiltration", confidence=0.61))
+
+        self.assertTrue(result.should_block)
+        self.assertEqual(result.risk_score, 85)
+        self.assertEqual(result.action, "block_candidate")
+        self.assertEqual(
+            result.matched_rules,
+            (
+                "label-score(Infiltration:+60)",
+                "repeat-score(+25)",
+                "threshold-and-repeat-met",
+            ),
+        )
+        self.assertEqual(result.policy_reason, "threshold-and-repeat-met")
+        self.assertEqual(result.observation_count, 2)
+
+    def test_whitelisted_ip_bypasses_blocking(self) -> None:
+        policy = DetectOnlyPolicy(
+            RuntimeConfig(
+                label_allowlist=("Benign",),
+                whitelist_ips=("198.51.100.10",),
+                label_block_thresholds={"Infiltration": 0.55},
+                skip_private_peer_blocking=False,
+            )
+        )
+
+        result = policy.apply(_build_result(label="Infiltration", confidence=0.90))
+
+        self.assertFalse(result.should_block)
+        self.assertEqual(result.risk_score, 0)
+        self.assertEqual(result.action, "log")
+        self.assertEqual(result.matched_rules, ("whitelisted-ip",))
+        self.assertEqual(result.policy_reason, "whitelisted-ip")
+        self.assertEqual(result.observation_count, 0)
+
+    def test_private_peer_traffic_is_not_blocked_when_enabled(self) -> None:
+        policy = DetectOnlyPolicy(
+            RuntimeConfig(
+                label_allowlist=("Benign",),
+                label_block_thresholds={"Infiltration": 0.55},
+                skip_private_peer_blocking=True,
+            )
+        )
+
+        result = policy.apply(
+            _build_result(
+                label="Infiltration",
+                confidence=0.90,
+                src_ip="192.168.0.12",
+                dst_ip="192.168.0.1",
+            )
+        )
+
+        self.assertFalse(result.should_block)
+        self.assertEqual(result.risk_score, 0)
+        self.assertEqual(result.action, "log")
+        self.assertEqual(result.matched_rules, ("private-peer-traffic",))
+        self.assertEqual(result.policy_reason, "private-peer-traffic")
+        self.assertEqual(result.observation_count, 0)
+
+    def test_close_attack_second_choice_marks_result_suspicious(self) -> None:
+        policy = DetectOnlyPolicy(
+            RuntimeConfig(
+                label_allowlist=("Benign",),
+                suspicious_attack_labels=("Infiltration",),
+                suspicious_secondary_threshold=0.30,
+                suspicious_gap_threshold=0.15,
+                suspicious_score=30,
+            )
+        )
+
+        result = _build_result(label="Benign", confidence=0.56)
+        result.probabilities = {"Benign": 0.56, "Infiltration": 0.44}
+        result = policy.apply(result)
+
+        self.assertTrue(result.suspicious)
+        self.assertEqual(result.risk_score, 30)
+        self.assertEqual(result.action, "suspicious")
+        self.assertEqual(
+            result.matched_rules,
+            (
+                "allowlisted-label",
+                "close-second(Infiltration=0.4400,gap=0.1200)",
+            ),
+        )
+        self.assertEqual(
+            result.suspicious_reason,
+            "close-second(Infiltration=0.4400,gap=0.1200)",
+        )
+
+    def test_large_gap_benign_result_is_not_marked_suspicious(self) -> None:
+        policy = DetectOnlyPolicy(
+            RuntimeConfig(
+                label_allowlist=("Benign",),
+                suspicious_attack_labels=("Infiltration",),
+                suspicious_secondary_threshold=0.30,
+                suspicious_gap_threshold=0.15,
+            )
+        )
+
+        result = _build_result(label="Benign", confidence=0.80)
+        result.probabilities = {"Benign": 0.80, "Infiltration": 0.18, "DoS": 0.02}
+        result = policy.apply(result)
+
+        self.assertFalse(result.suspicious)
+        self.assertEqual(result.risk_score, 0)
+        self.assertEqual(result.action, "log")
+        self.assertEqual(result.suspicious_reason, "")
+
+    def test_sensitive_port_score_raises_action_level(self) -> None:
+        policy = DetectOnlyPolicy(
+            RuntimeConfig(
+                label_allowlist=("Benign",),
+                label_block_thresholds={"Infiltration": 0.55},
+                label_risk_scores={"Infiltration": 45},
+                sensitive_port_scores={"22": 20},
+                min_block_observations=2,
+                skip_private_peer_blocking=False,
+            )
+        )
+
+        result = policy.apply(
+            _build_result(
+                label="Infiltration",
+                confidence=0.70,
+                dst_ip="203.0.113.22",
+                dst_port=22,
+            )
+        )
+
+        self.assertEqual(result.risk_score, 65)
+        self.assertEqual(result.action, "alert")
+        self.assertEqual(
+            result.matched_rules,
+            (
+                "label-score(Infiltration:+45)",
+                "sensitive-port(22:+20)",
+                "awaiting-repeat(1/2)",
+            ),
+        )
+
+    def test_awaiting_repeat_caps_action_at_alert(self) -> None:
+        policy = DetectOnlyPolicy(
+            RuntimeConfig(
+                label_allowlist=("Benign",),
+                label_block_thresholds={"Infiltration": 0.55},
+                label_risk_scores={"Infiltration": 70},
+                sensitive_port_scores={"22": 20},
+                min_block_observations=2,
+                skip_private_peer_blocking=False,
+            )
+        )
+
+        result = policy.apply(
+            _build_result(label="Infiltration", confidence=0.90, dst_port=22)
+        )
+
+        self.assertEqual(result.risk_score, 90)
+        self.assertEqual(result.action, "alert")
+        self.assertFalse(result.should_block)
+        self.assertEqual(result.policy_reason, "awaiting-repeat(1/2)")
+
+    def test_repeat_key_isolated_by_destination_and_port(self) -> None:
+        policy = DetectOnlyPolicy(
+            RuntimeConfig(
+                label_allowlist=("Benign",),
+                label_block_thresholds={"Infiltration": 0.55},
+                label_risk_scores={"Infiltration": 60},
+                sensitive_port_scores={"22": 20, "53": 10},
+                repeat_observation_score=15,
+                min_block_observations=2,
+                skip_private_peer_blocking=False,
+            )
+        )
+
+        first = policy.apply(
+            _build_result(
+                label="Infiltration",
+                confidence=0.90,
+                src_ip="192.168.0.12",
+                dst_ip="192.168.0.1",
+                dst_port=22,
+            )
+        )
+        second = policy.apply(
+            _build_result(
+                label="Infiltration",
+                confidence=0.90,
+                src_ip="192.168.0.12",
+                dst_ip="192.168.0.1",
+                dst_port=53,
+            )
+        )
+
+        self.assertEqual(first.observation_count, 1)
+        self.assertEqual(second.observation_count, 1)
+        self.assertEqual(first.policy_reason, "awaiting-repeat(1/2)")
+        self.assertEqual(second.policy_reason, "awaiting-repeat(1/2)")
+        self.assertEqual(second.action, "alert")
+        self.assertFalse(second.should_block)
+
+    def test_response_traffic_gets_score_dampening(self) -> None:
+        policy = DetectOnlyPolicy(
+            RuntimeConfig(
+                label_allowlist=("Benign",),
+                label_block_thresholds={"Infiltration": 0.55},
+                label_risk_scores={"Infiltration": 60},
+                response_traffic_score_reduction=20,
+                min_block_observations=2,
+                skip_private_peer_blocking=False,
+            )
+        )
+
+        result = _build_result(
+            label="Infiltration",
+            confidence=0.70,
+            src_ip="104.18.32.47",
+            dst_ip="192.168.0.12",
+            src_port=443,
+            dst_port=59070,
+        )
+        result.flow.metadata["likely_response_traffic"] = True
+        result = policy.apply(result)
+
+        self.assertEqual(result.risk_score, 40)
+        self.assertEqual(result.action, "suspicious")
+        self.assertEqual(
+            result.matched_rules,
+            (
+                "label-score(Infiltration:+60)",
+                "response-traffic-dampening(-20)",
+                "awaiting-repeat(1/2)",
+            ),
+        )
+
+    def test_trusted_service_gets_score_dampening(self) -> None:
+        policy = DetectOnlyPolicy(
+            RuntimeConfig(
+                label_allowlist=("Benign",),
+                label_block_thresholds={"Infiltration": 0.55},
+                label_risk_scores={"Infiltration": 60},
+                trusted_service_score_reduction=20,
+                min_block_observations=2,
+                skip_private_peer_blocking=False,
+            )
+        )
+
+        result = _build_result(
+            label="Infiltration",
+            confidence=0.70,
+            src_ip="192.168.0.12",
+            dst_ip="192.168.0.1",
+            dst_port=53,
+        )
+        result.flow.metadata["dst_is_trusted_service"] = True
+        result = policy.apply(result)
+
+        self.assertEqual(result.risk_score, 50)
+        self.assertEqual(result.action, "alert")
+        self.assertEqual(
+            result.matched_rules,
+            (
+                "label-score(Infiltration:+60)",
+                "sensitive-port(53:+10)",
+                "trusted-service-dampening(-20)",
+                "awaiting-repeat(1/2)",
+            ),
+        )
+
+    def test_allowlisted_flow_can_be_marked_by_signature(self) -> None:
+        policy = DetectOnlyPolicy(
+            RuntimeConfig(
+                label_allowlist=("Benign",),
+                signature_rule_scores={"tcp-sensitive-port-probe": 35},
+                sensitive_port_scores={"445": 25},
+            )
+        )
+
+        result = _build_result(label="Benign", confidence=0.90, dst_port=445)
+        result.flow.metadata.update(
+            {
+                "packet_count": 4,
+                "forward_packets": 2,
+                "backward_packets": 2,
+                "total_payload_bytes": 0,
+                "syn_flag_count": 1,
+                "rst_flag_count": 0,
+            }
+        )
+        result = policy.apply(result)
+
+        self.assertEqual(result.risk_score, 35)
+        self.assertEqual(result.action, "suspicious")
+        self.assertEqual(
+            result.matched_signatures,
+            ("signature(tcp-sensitive-port-probe:+35;dst_port=445,packets=4,payload<=32)",),
+        )
+
+    def test_signature_can_raise_below_threshold_flow(self) -> None:
+        policy = DetectOnlyPolicy(
+            RuntimeConfig(
+                label_allowlist=("Benign",),
+                label_block_thresholds={"Infiltration": 0.70},
+                signature_rule_scores={"tcp-sensitive-port-probe": 35},
+                sensitive_port_scores={"22": 20},
+                skip_private_peer_blocking=False,
+            )
+        )
+
+        result = _build_result(label="Infiltration", confidence=0.60, dst_port=22)
+        result.flow.metadata.update(
+            {
+                "packet_count": 4,
+                "forward_packets": 2,
+                "backward_packets": 2,
+                "total_payload_bytes": 0,
+                "syn_flag_count": 1,
+                "rst_flag_count": 0,
+            }
+        )
+        result = policy.apply(result)
+
+        self.assertEqual(result.risk_score, 35)
+        self.assertEqual(result.action, "suspicious")
+        self.assertFalse(result.should_block)
+        self.assertEqual(
+            result.matched_rules,
+            (
+                "below-threshold(0.70)",
+                "signature(tcp-sensitive-port-probe:+35;dst_port=22,packets=4,payload<=32)",
+            ),
+        )
+
+    def test_signature_probe_allows_small_payload_and_more_packets(self) -> None:
+        policy = DetectOnlyPolicy(
+            RuntimeConfig(
+                label_allowlist=("Benign",),
+                signature_rule_scores={"tcp-sensitive-port-probe": 35},
+                sensitive_port_scores={"22": 20},
+                signature_probe_max_packets=8,
+                signature_probe_max_payload_bytes=32,
+            )
+        )
+
+        result = _build_result(label="Benign", confidence=0.90, dst_port=22)
+        result.flow.metadata.update(
+            {
+                "packet_count": 7,
+                "forward_packets": 4,
+                "backward_packets": 3,
+                "total_payload_bytes": 16,
+                "syn_flag_count": 1,
+                "rst_flag_count": 0,
+            }
+        )
+        result = policy.apply(result)
+
+        self.assertEqual(result.risk_score, 35)
+        self.assertEqual(result.action, "suspicious")
+        self.assertEqual(
+            result.matched_signatures,
+            ("signature(tcp-sensitive-port-probe:+35;dst_port=22,packets=7,payload<=32)",),
+        )
+
+    def test_allowlisted_signature_action_is_capped(self) -> None:
+        policy = DetectOnlyPolicy(
+            RuntimeConfig(
+                label_allowlist=("Benign",),
+                signature_rule_scores={"http-known-exploit-marker": 75},
+                signature_allowlisted_max_action="suspicious",
+            )
+        )
+
+        result = _build_result(label="Benign", confidence=0.90)
+        result.flow.metadata.update(
+            {
+                "http_is_plaintext": True,
+                "http_query": "x=${jndi:ldap://example/a}",
+            }
+        )
+        result = policy.apply(result)
+
+        self.assertEqual(result.risk_score, 75)
+        self.assertEqual(result.action, "suspicious")
+        self.assertEqual(
+            result.matched_signatures,
+            ("signature(http-known-exploit-marker:+75;marker=${jndi:)",),
+        )
+
+    def test_payload_signature_detects_sqli_keyword(self) -> None:
+        policy = DetectOnlyPolicy(
+            RuntimeConfig(
+                label_allowlist=("Benign",),
+                signature_rule_scores={"http-sqli-keyword": 70},
+                signature_allowlisted_max_action="alert",
+            )
+        )
+
+        result = _build_result(label="Benign", confidence=0.95, dst_port=80)
+        result.flow.metadata.update(
+            {
+                "http_is_plaintext": True,
+                "http_path": "/search",
+                "http_query": "q=' OR 1=1 --",
+            }
+        )
+        result = policy.apply(result)
+
+        self.assertEqual(result.risk_score, 70)
+        self.assertEqual(result.action, "alert")
+        self.assertEqual(
+            result.matched_signatures,
+            ("signature(http-sqli-keyword:+70;pattern=' or 1=1)",),
+        )
+
+    def test_https_payload_preview_does_not_trigger_http_signature(self) -> None:
+        policy = DetectOnlyPolicy(
+            RuntimeConfig(
+                label_allowlist=("Benign",),
+                signature_rule_scores={"http-sqli-keyword": 70},
+            )
+        )
+
+        result = _build_result(label="Benign", confidence=0.95, dst_port=443)
+        result.flow.metadata["payload_preview"] = "GET /search?q=' OR 1=1 HTTP/1.1"
+        result = policy.apply(result)
+
+        self.assertEqual(result.risk_score, 0)
+        self.assertEqual(result.action, "log")
+        self.assertEqual(result.matched_signatures, ())
+
+    def test_dns_signature_detects_long_query(self) -> None:
+        policy = DetectOnlyPolicy(
+            RuntimeConfig(
+                label_allowlist=("Benign",),
+                signature_rule_scores={"dns-long-query": 30},
+                signature_dns_long_query_chars=20,
+            )
+        )
+
+        result = _build_result(label="Benign", confidence=0.95, dst_port=53, protocol="UDP")
+        result.flow.metadata["dns_queries"] = "aaaaaaaaaaaaaaaaaaaaaaaa.example.com"
+        result = policy.apply(result)
+
+        self.assertEqual(result.risk_score, 30)
+        self.assertEqual(result.action, "suspicious")
+        self.assertEqual(
+            result.matched_signatures,
+            ("signature(dns-long-query:+30;len=36)",),
+        )
+
+    def test_behavior_port_scan_raises_allowlisted_flow(self) -> None:
+        policy = DetectOnlyPolicy(
+            RuntimeConfig(
+                label_allowlist=("Benign",),
+                behavior_port_scan_min_ports=3,
+                behavior_port_scan_score=35,
+                signature_allowlisted_max_action="suspicious",
+            )
+        )
+
+        policy.apply(_build_result(label="Benign", confidence=0.95, dst_port=22))
+        policy.apply(_build_result(label="Benign", confidence=0.95, dst_port=80))
+        result = policy.apply(_build_result(label="Benign", confidence=0.95, dst_port=445))
+
+        self.assertEqual(result.risk_score, 35)
+        self.assertEqual(result.action, "suspicious")
+        self.assertEqual(
+            result.matched_behaviors,
+            ("behavior(behavior-port-scan:+35;dst=203.0.113.20,ports=3,window=60s)",),
+        )
+
+    def test_behavior_fanout_can_raise_below_threshold_flow(self) -> None:
+        policy = DetectOnlyPolicy(
+            RuntimeConfig(
+                label_allowlist=("Benign",),
+                label_block_thresholds={"Infiltration": 0.90},
+                behavior_fanout_min_hosts=3,
+                behavior_fanout_score=35,
+                skip_private_peer_blocking=False,
+            )
+        )
+
+        policy.apply(
+            _build_result(label="Infiltration", confidence=0.60, dst_ip="203.0.113.10", dst_port=22)
+        )
+        policy.apply(
+            _build_result(label="Infiltration", confidence=0.60, dst_ip="203.0.113.11", dst_port=22)
+        )
+        result = policy.apply(
+            _build_result(label="Infiltration", confidence=0.60, dst_ip="203.0.113.12", dst_port=22)
+        )
+
+        self.assertEqual(result.risk_score, 35)
+        self.assertEqual(result.action, "suspicious")
+        self.assertEqual(result.policy_reason, "below-threshold(0.90)")
+        self.assertEqual(
+            result.matched_behaviors,
+            ("behavior(behavior-fanout:+35;dst_port=22,hosts=3,window=60s)",),
+        )
+
+
+if __name__ == "__main__":
+    unittest.main()

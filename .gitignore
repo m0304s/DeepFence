@@ -2,10 +2,10 @@
 venv/
 
 # 데이터셋
-data/raw/
+training/data/raw/
 
 # 전처리 결과
-data/processed/
+training/data/processed/
 
 # 학습 체크포인트
 training/artifacts/models/checkpoint.pt
@@ -22,6 +22,8 @@ __pycache__/
 # 서비스 런타임 캐시
 service/.pytest_cache/
 service/.mypy_cache/
+service/configs/.env
+service/configs/assets.json
 
 # OS 파일
 .DS_Store
