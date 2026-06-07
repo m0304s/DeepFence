@@ -3,13 +3,19 @@ venv/
 
 # 데이터셋
 training/data/raw/
+training/data/88a47ba2ab64258e_MOHANAD_A4706/
 
 # 전처리 결과
 training/data/processed/
+training/data/processed_netflow_v1/
+training/data/processed_netflow_v2_twostage/
 
 # 학습 체크포인트
 training/artifacts/models/checkpoint.pt
 training/artifacts/models/checkpoint_v2.pt
+training/artifacts/models/best_model_netflow_*.cbm
+training/artifacts/models/model_meta_netflow_*.json
+training/notebooks/catboost_info/
 
 # Jupyter 체크포인트
 .ipynb_checkpoints/
