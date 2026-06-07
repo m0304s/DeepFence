@@ -1,5 +1,6 @@
 """Suricata 서브프로세스 관리 모듈."""
 
+import platform
 import subprocess
 import time
 from pathlib import Path
@@ -46,6 +47,11 @@ class SuricataRunner:
             "--set", "flow.timeouts.udp.new=5",
             "--set", "flow.timeouts.udp.established=5",
         ]
+
+        if platform.system() == "Darwin" and self._config.capture_interface.startswith("lo"):
+            # macOS loopback 캡처는 checksum offload처럼 보이는 패킷 때문에 app-layer 파싱이 실패할 수 있다.
+            # 로컬 테스트에서 HTTP/DNS signature 검증이 가능하도록 checksum validation을 끈다.
+            cmd.extend(["--set", "stream.checksum-validation=no"])
         
         try:
             self._logger.info(f"Suricata 구동: {' '.join(cmd)}")

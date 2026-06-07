@@ -45,7 +45,6 @@ _XSS_PATTERNS = (
 )
 
 _OS_CMD_PATTERNS = (
-    "${jndi:",
     "cmd.exe",
     "powershell",
     "wget http",
@@ -56,6 +55,10 @@ _OS_CMD_PATTERNS = (
     "| curl",
     "; wget",
     "id=root",
+)
+
+_KNOWN_EXPLOIT_MARKERS = (
+    "${jndi:",
 )
 
 
@@ -114,5 +117,12 @@ def evaluate_http_signatures(
         score = score_for(score_map, rule_id)
         if score:
             matches.append(SignatureMatch(rule_id, score, f"cmd={pattern}"))
+
+    pattern = _contains_any(searchable, _KNOWN_EXPLOIT_MARKERS)
+    if pattern:
+        rule_id = "http-known-exploit-marker"
+        score = score_for(score_map, rule_id)
+        if score:
+            matches.append(SignatureMatch(rule_id, score, f"marker={pattern}"))
 
     return tuple(matches)

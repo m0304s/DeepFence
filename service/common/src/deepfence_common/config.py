@@ -92,7 +92,15 @@ class RuntimeConfig:
     opensearch_username: str = ""
     opensearch_password: str = ""
     opensearch_timeout_seconds: int = 5
+    feature_set: str = "cicflowmeter_v1"
+    processed_dir_name: str = "processed"
+    model_mode: str = "multiclass"
     default_model_name: str = "best_model_v6_catboost.cbm"
+    attack_model_name: str = "best_model_netflow_v2_attack_catboost.cbm"
+    binary_attack_threshold: float = 0.95
+    rescue_label: str = "Infiltration"
+    rescue_min_binary_attack_probability: float = 0.05
+    rescue_attack_label_threshold: float = 0.95
     sample_index: int = 0
     detect_only: bool = True
     capture_interface: str = "Wi-Fi"
@@ -296,7 +304,24 @@ class RuntimeConfig:
             "OPENSEARCH_TIMEOUT_SECONDS",
             self.opensearch_timeout_seconds,
         )
+        self.feature_set = os.getenv("FEATURE_SET", self.feature_set)
+        self.processed_dir_name = os.getenv("PROCESSED_DIR_NAME", self.processed_dir_name)
+        self.model_mode = os.getenv("MODEL_MODE", self.model_mode)
         self.default_model_name = os.getenv("DEFAULT_MODEL_NAME", self.default_model_name)
+        self.attack_model_name = os.getenv("ATTACK_MODEL_NAME", self.attack_model_name)
+        self.binary_attack_threshold = _get_float_env(
+            "BINARY_ATTACK_THRESHOLD",
+            self.binary_attack_threshold,
+        )
+        self.rescue_label = os.getenv("RESCUE_LABEL", self.rescue_label)
+        self.rescue_min_binary_attack_probability = _get_float_env(
+            "RESCUE_MIN_BINARY_ATTACK_PROBABILITY",
+            self.rescue_min_binary_attack_probability,
+        )
+        self.rescue_attack_label_threshold = _get_float_env(
+            "RESCUE_ATTACK_LABEL_THRESHOLD",
+            self.rescue_attack_label_threshold,
+        )
         self.sample_index = _get_int_env("SAMPLE_INDEX", self.sample_index)
         self.detect_only = _get_bool_env("DETECT_ONLY", self.detect_only)
         self.capture_interface = os.getenv("CAPTURE_INTERFACE", self.capture_interface)
@@ -405,8 +430,9 @@ def find_project_root(start: Path | None = None) -> Path:
 
 def build_runtime_paths(project_root: Path) -> RuntimePaths:
     """런타임 경로 구성."""
+    processed_dir_name = os.getenv("PROCESSED_DIR_NAME", "processed")
     return RuntimePaths(
         project_root=project_root,
-        processed_dir=project_root / "training" / "data" / "processed",
+        processed_dir=project_root / "training" / "data" / processed_dir_name,
         model_dir=project_root / "training" / "artifacts" / "models",
     )

@@ -23,7 +23,7 @@ def build_live_runtime(paths: RuntimePaths, config: RuntimeConfig):
     """상시 수집형 센서 구성 (Suricata 서브프로세스 및 꼬리읽기)."""
     log_dir = Path("/tmp/suricata_deepfence")
     runner = SuricataRunner(config, log_dir)
-    tailer = SuricataTailer(log_dir, paths)
+    tailer = SuricataTailer(log_dir, paths, feature_set=config.feature_set)
     
     # 여기서 프로세스를 시작하지만 외부 관리자가 통제할 수도 있음.
     runner.start()

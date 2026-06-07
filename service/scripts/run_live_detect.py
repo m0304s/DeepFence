@@ -27,12 +27,22 @@ def _require_file(path: Path, description: str) -> None:
 
 def _validate_runtime_inputs(paths, config) -> None:
     """실행 전 필수 아티팩트와 인터페이스 검사."""
-    required_files = (
+    required_files = [
         (paths.processed_dir / "feature_names.json", "피처 이름"),
-        (paths.processed_dir / "label_mapping.json", "레이블 매핑"),
         (paths.processed_dir / "scaler.pkl", "스케일러"),
         (paths.model_dir / config.default_model_name, "모델"),
-    )
+    ]
+    if config.model_mode in {"netflow_v2_twostage", "netflow_v3_rescue"}:
+        required_files.extend(
+            [
+                (paths.processed_dir / "attack_label_mapping.json", "공격 레이블 매핑"),
+                (paths.processed_dir / "binary_label_mapping.json", "이진 레이블 매핑"),
+                (paths.model_dir / config.attack_model_name, "공격 유형 모델"),
+            ]
+        )
+    else:
+        required_files.append((paths.processed_dir / "label_mapping.json", "레이블 매핑"))
+
     for path, description in required_files:
         _require_file(path, description)
 
